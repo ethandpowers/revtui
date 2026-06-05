@@ -143,6 +143,15 @@ func handleGetMe(client *GerritClient) {
 	accountInfo.Print()
 }
 
+func handleNuke() {
+	err := DeleteAllPasswords()
+	if err != nil {
+		log.Fatalf("Error nuking passwords: %s", err.Error())
+	}
+
+	fmt.Println("All passwords removed from OS keyring")
+}
+
 func main() {
 	flag.Parse()
 
@@ -159,6 +168,8 @@ func main() {
 	case "logout":
 		client := NewGerritClient()
 		handleLogout(client)
+	case "nuke":
+		handleNuke()
 	case "me":
 		client := NewGerritClient()
 		handleGetMe(client)
