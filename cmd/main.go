@@ -26,38 +26,12 @@ func accountDisplayName(a AccountInfo) string {
 	return ""
 }
 
-func handleLogin(client *GerritClient) {
-	if len(flag.Args()) != 2 {
-		fmt.Println("Usage: gerritui auth [password]")
-		os.Exit(1)
-	}
-
-	password := flag.Arg(1)
-
-	err := SavePassword(client.host, client.username, password)
-	if err != nil {
-		fmt.Printf("Error saving password to OS keyring: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	client.password = password
-
-	accountInfo, err := client.GetAccountInfo()
-	if err != nil {
-		fmt.Printf("Error logging in: %s\n", err.Error())
-		os.Exit(1)
-	}
-	fmt.Printf("Logged in as %s\n", accountInfo.Name)
+func handleLogin(client Backend) {
+	client.Login()
 }
 
-func handleLogout(client *GerritClient) {
-	err := DeletePasswordFor(client.host, client.username)
-	if err != nil {
-		fmt.Printf("Error deleting password from OS keyring: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	fmt.Println("Logged out")
+func handleLogout(client Backend) {
+	client.Logout()
 }
 
 func handleGetMe(client *GerritClient) {

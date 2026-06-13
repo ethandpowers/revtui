@@ -4,7 +4,7 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-const ServiceName = "gerritui"
+const ServiceName = "revtui"
 
 func SavePassword(host string, username string, password string) error {
 	return keyring.Set(ServiceName, host+":"+username, password)

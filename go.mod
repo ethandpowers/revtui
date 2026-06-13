@@ -1,4 +1,4 @@
-module github.com/ethandpowers/gerritui
+module github.com/ethandpowers/revtui
 
 go 1.26.4
 

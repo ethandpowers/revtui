@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -157,6 +158,40 @@ func (c *GerritClient) GetAccountInfo() (*AccountInfo, error) {
 	}
 
 	return &accountInfo, nil
+}
+
+func (c *GerritClient) Login() {
+	if len(flag.Args()) != 2 {
+		fmt.Println("Usage: revtui auth [password]")
+		os.Exit(1)
+	}
+
+	password := flag.Arg(1)
+
+	err := SavePassword(c.host, c.username, password)
+	if err != nil {
+		fmt.Printf("Error saving password to OS keyring: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	c.password = password
+
+	accountInfo, err := c.GetAccountInfo()
+	if err != nil {
+		fmt.Printf("Error logging in: %s\n", err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("Logged in as %s\n", accountInfo.Name)
+}
+
+func (c *GerritClient) Logout() {
+	err := DeletePasswordFor(c.host, c.username)
+	if err != nil {
+		fmt.Printf("Error deleting password from OS keyring: %s\n", err.Error())
+		os.Exit(1)
+	}
+
+	fmt.Println("Logged out")
 }
 
 func (c *GerritClient) GetChanges() ([]ChangeInfo, error) {
