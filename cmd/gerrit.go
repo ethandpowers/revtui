@@ -162,7 +162,7 @@ func (c *GerritClient) GetAccountInfo() (*AccountInfo, error) {
 
 func (c *GerritClient) Login() {
 	if len(flag.Args()) != 2 {
-		fmt.Println("Usage: revtui auth [password]")
+		fmt.Println("Usage: revtui login [password]")
 		os.Exit(1)
 	}
 
