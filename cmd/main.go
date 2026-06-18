@@ -60,44 +60,20 @@ const (
 	OwnerField    = "Owner"
 )
 
-func handleChanges(client Backend) {
-	changes, err := client.GetChanges()
-	if err != nil {
-		fmt.Printf("Error retrieving changes: %s\n", err.Error())
-		os.Exit(1)
-	}
-
-	longestChangeID := len(ChangeIDField)
-	longestSubject := len(SubjectField)
-	longestOwner := len(OwnerField)
-
-	for _, change := range changes {
-		longestChangeID = max(longestChangeID, len(change.ChangeID))
-		longestSubject = max(longestSubject, len(change.Title))
-		longestOwner = max(longestOwner, len(userDisplayName(&change.Author)))
-	}
-
-	fmt.Printf("%-*s %-*s %-*s\n", longestChangeID, ChangeIDField, longestSubject, SubjectField, longestOwner, OwnerField)
-
-	for _, change := range changes {
-		fmt.Printf("%-*s %-*s %-*s\n", longestChangeID, change.ChangeID, longestSubject, change.Title, longestOwner, userDisplayName(&change.Author))
-	}
-}
-
 func main() {
 	flag.Parse()
 
 	if len(flag.Args()) == 0 {
-		fmt.Println("Subcommand required [inbox|changes|login|logout|nuke|me]")
-		os.Exit(1)
+		client := NewGerritClient()
+		renderTUI(client)
+		os.Exit(0)
 	}
 
 	switch cmd := flag.Arg(0); cmd {
-	case "inbox":
-		fmt.Println("Doing inbox things")
 	case "changes":
 		client := NewGerritClient()
-		handleChanges(client)
+		renderTUI(client)
+		os.Exit(0)
 	case "login":
 		client := NewGerritClient()
 		handleLogin(client)
@@ -110,7 +86,7 @@ func main() {
 		client := NewGerritClient()
 		handleGetMe(client)
 	default:
-		fmt.Printf("Unsupported subcommand: %s\n", cmd)
+		fmt.Println("Supported subcommands: [login|logout|nuke|me]")
 		os.Exit(1)
 	}
 }
