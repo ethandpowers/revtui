@@ -6,11 +6,11 @@ import (
 	"os"
 )
 
-func printAccountInfo(a *AccountInfo) {
-	fmt.Printf("%-11s %d\n%-11s %s\n%-11s %s\n%-11s %s\n", "Account ID:", a.AccountID, "Name:", a.Name, "Email:", a.Email, "Username:", a.Username)
+func printUser(a *User) {
+	fmt.Printf("%-11s %s\n%-11s %s\n%-11s %s\n%-11s %s\n", "Account ID:", a.ID, "Name:", a.Name, "Email:", a.Email, "Username:", a.Username)
 }
 
-func accountDisplayName(a AccountInfo) string {
+func userDisplayName(a *User) string {
 	if a.Name != "" {
 		return a.Name
 	}
@@ -20,8 +20,8 @@ func accountDisplayName(a AccountInfo) string {
 	if a.Email != "" {
 		return a.Email
 	}
-	if a.AccountID != 0 {
-		return fmt.Sprintf("%d", a.AccountID)
+	if a.ID != "" {
+		return a.ID
 	}
 	return ""
 }
@@ -34,14 +34,14 @@ func handleLogout(client Backend) {
 	client.Logout()
 }
 
-func handleGetMe(client *GerritClient) {
-	accountInfo, err := client.GetAccountInfo()
+func handleGetMe(client Backend) {
+	user, err := client.GetCurrentUser()
 	if err != nil {
 		fmt.Printf("Error getting account info: %s\n", err.Error())
 		os.Exit(1)
 	}
 
-	printAccountInfo(accountInfo)
+	printUser(user)
 }
 
 func handleNuke() {
@@ -60,7 +60,7 @@ const (
 	OwnerField    = "Owner"
 )
 
-func handleChanges(client *GerritClient) {
+func handleChanges(client Backend) {
 	changes, err := client.GetChanges()
 	if err != nil {
 		fmt.Printf("Error retrieving changes: %s\n", err.Error())
@@ -73,14 +73,14 @@ func handleChanges(client *GerritClient) {
 
 	for _, change := range changes {
 		longestChangeID = max(longestChangeID, len(change.ChangeID))
-		longestSubject = max(longestSubject, len(change.Subject))
-		longestOwner = max(longestOwner, len(accountDisplayName(change.Owner)))
+		longestSubject = max(longestSubject, len(change.Title))
+		longestOwner = max(longestOwner, len(userDisplayName(&change.Author)))
 	}
 
 	fmt.Printf("%-*s %-*s %-*s\n", longestChangeID, ChangeIDField, longestSubject, SubjectField, longestOwner, OwnerField)
 
 	for _, change := range changes {
-		fmt.Printf("%-*s %-*s %-*s\n", longestChangeID, change.ChangeID, longestSubject, change.Subject, longestOwner, accountDisplayName(change.Owner))
+		fmt.Printf("%-*s %-*s %-*s\n", longestChangeID, change.ChangeID, longestSubject, change.Title, longestOwner, userDisplayName(&change.Author))
 	}
 }
 
