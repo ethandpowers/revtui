@@ -26,4 +26,5 @@ type Backend interface {
 	Logout()
 	GetCurrentUser() (*User, error)
 	GetChanges() ([]Change, error)
+	Checkout(Change) error
 }

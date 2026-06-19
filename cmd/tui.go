@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -33,7 +34,6 @@ type model struct {
 func initialModel(backend Backend) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	// s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 	return model{
 		backend: backend,
@@ -70,10 +70,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
+
 	case tea.WindowSizeMsg:
+
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
 	case changesLoadedMsg:
 
 		longestChangeID := len(ChangeIDField)
@@ -112,6 +115,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
+		case "c":
+			if len(m.changes) == 0 {
+				return m, nil
+			}
+			m.err = m.backend.Checkout(m.changes[m.cursor])
 		}
 	}
 
@@ -153,38 +161,52 @@ func (m model) View() tea.View {
 	}
 
 	if m.err != nil {
-		v := tea.NewView(fmt.Sprintf("Error: %s\n", m.err))
+		v := tea.NewView(fmt.Sprintf("Error: %s\n", m.err.Error()))
 		v.AltScreen = true
 		return v
 	}
 
-	s := fmt.Sprintf(
-		"  %-*s %-*s %-*s\n",
-		m.columnConfig.longestChangeID,
-		ChangeIDField,
-		m.columnConfig.longestSubject,
-		SubjectField,
-		m.columnConfig.longestOwner,
-		OwnerField,
-	)
-
-	mainViewportSize := m.height - 2
-
-	for i := 0; i < mainViewportSize; i++ {
-		scrollOffset := 0
-
-		if m.cursor >= mainViewportSize {
-			scrollOffset = m.cursor - mainViewportSize + 1
-		}
-
-		changeIndex := i + scrollOffset
-		if len(m.changes) > changeIndex {
-			s += m.renderChangeRow(changeIndex)
-		}
-		s += "\n"
+	rows := []string{
+		fmt.Sprintf(
+			"  %-*s %-*s %-*s",
+			m.columnConfig.longestChangeID,
+			ChangeIDField,
+			m.columnConfig.longestSubject,
+			SubjectField,
+			m.columnConfig.longestOwner,
+			OwnerField,
+		),
 	}
 
-	s += "q: quit\n"
+	mainViewportSize := m.height - 6
+	if mainViewportSize < 0 {
+		mainViewportSize = 0
+	}
+
+	scrollOffset := 0
+	if m.cursor >= mainViewportSize && mainViewportSize > 0 {
+		scrollOffset = m.cursor - mainViewportSize + 1
+	}
+
+	for i := 0; i < mainViewportSize; i++ {
+		changeIndex := i + scrollOffset
+		if len(m.changes) <= changeIndex {
+			break
+		}
+
+		rows = append(rows, m.renderChangeRow(changeIndex))
+	}
+
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(1, 2)
+
+	if m.width > 0 {
+		boxStyle = boxStyle.Width(max(0, m.width-2))
+	}
+
+	s := boxStyle.Render(strings.Join(rows, "\n"))
+	s += "\nq: quit | c: checkout | w: checkout to worktree | p: cherry-pick\n"
 
 	v := tea.NewView(s)
 	v.AltScreen = true

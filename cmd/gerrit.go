@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
 )
@@ -25,6 +26,7 @@ type GerritClient struct {
 	username   string
 	password   string
 	httpClient *http.Client
+	changes    []gerritChange
 }
 
 func (c *GerritClient) decodeResponse(resp *http.Response, v any) error {
@@ -59,6 +61,7 @@ func NewGerritClient() *GerritClient {
 				},
 			},
 		},
+		nil,
 	}
 }
 
@@ -132,7 +135,7 @@ type gerritChange struct {
 	Messages               []json.RawMessage                         `json:"messages"`
 	CurrentRevisionNumber  int                                       `json:"current_revision_number"`
 	CurrentRevision        string                                    `json:"current_revision"`
-	Revisions              map[string]json.RawMessage                `json:"revisions"`
+	Revisions              map[string]gerritRevision                 `json:"revisions"`
 	MetaRevID              string                                    `json:"meta_rev_id"`
 	TrackingIDs            []json.RawMessage                         `json:"tracking_ids"`
 	MoreChanges            bool                                      `json:"_more_changes"`
@@ -145,6 +148,10 @@ type gerritChange struct {
 	CherryPickOfChange     int                                       `json:"cherry_pick_of_change"`
 	CherryPickOfPatchSet   int                                       `json:"cherry_pick_of_patch_set"`
 	ContainsGitConflicts   bool                                      `json:"contains_git_conflicts"`
+}
+
+type gerritRevision struct {
+	Number int `json:"_number"`
 }
 
 func (c *GerritClient) GetCurrentUser() (*User, error) {
@@ -217,7 +224,7 @@ func (c *GerritClient) Logout() {
 }
 
 func (c *GerritClient) GetChanges() ([]Change, error) {
-	url := "https://" + c.host + "/a/changes/?o=DETAILED_ACCOUNTS"
+	url := "https://" + c.host + "/a/changes/?o=DETAILED_ACCOUNTS&o=CURRENT_REVISION"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -240,15 +247,13 @@ func (c *GerritClient) GetChanges() ([]Change, error) {
 		return nil, errors.New(string(responseBody))
 	}
 
-	var gerritChanges []gerritChange
-
-	err = c.decodeResponse(resp, &gerritChanges)
+	err = c.decodeResponse(resp, &c.changes)
 	if err != nil {
 		return nil, err
 	}
 
-	changes := make([]Change, 0, len(gerritChanges))
-	for _, change := range gerritChanges {
+	changes := make([]Change, 0, len(c.changes))
+	for _, change := range c.changes {
 		mergeable := false
 		if change.Mergeable != nil {
 			mergeable = *change.Mergeable
@@ -268,4 +273,56 @@ func (c *GerritClient) GetChanges() ([]Change, error) {
 	}
 
 	return changes, nil
+}
+
+func (c *GerritClient) currentRevisionNumber(change *gerritChange) int {
+	if change.CurrentRevisionNumber != 0 {
+		return change.CurrentRevisionNumber
+	}
+
+	if change.CurrentRevision == "" {
+		return 0
+	}
+
+	return change.Revisions[change.CurrentRevision].Number
+}
+
+func (c *GerritClient) Checkout(change Change) error {
+	var matchingChange *gerritChange
+	for i := range c.changes {
+		if c.changes[i].ChangeID == change.ChangeID {
+			matchingChange = &c.changes[i]
+			break
+		}
+	}
+
+	if matchingChange == nil {
+		return fmt.Errorf("change %s was not found in cached Gerrit changes", change.ChangeID)
+	}
+
+	currentRevisionNumber := c.currentRevisionNumber(matchingChange)
+	if matchingChange.Number == 0 || currentRevisionNumber == 0 {
+		return fmt.Errorf("change %s is missing checkout metadata", change.ChangeID)
+	}
+
+	ref := fmt.Sprintf(
+		"refs/changes/%02d/%d/%d",
+		matchingChange.Number%100,
+		matchingChange.Number,
+		currentRevisionNumber,
+	)
+
+	fetch := exec.Command("git", "fetch", "origin", ref)
+	output, err := fetch.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git fetch origin %s failed: %s: %w", ref, string(output), err)
+	}
+
+	checkout := exec.Command("git", "checkout", "FETCH_HEAD")
+	output, err = checkout.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git checkout FETCH_HEAD failed: %s: %w", string(output), err)
+	}
+
+	return nil
 }
