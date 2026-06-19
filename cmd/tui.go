@@ -27,8 +27,8 @@ type model struct {
 
 	loading bool
 	spinner spinner.Model
-
-	err error
+	message string
+	err     error
 }
 
 func initialModel(backend Backend) model {
@@ -55,6 +55,21 @@ func loadChangesCmd(backend Backend) tea.Cmd {
 		return changesLoadedMsg{
 			changes: changes,
 			err:     err,
+		}
+	}
+}
+
+type checkoutMsg struct {
+	message string
+	err     error
+}
+
+func checkoutChangeCmd(change Change, backend Backend) tea.Cmd {
+	return func() tea.Msg {
+		err := backend.Checkout(change)
+		return checkoutMsg{
+			"Done",
+			err,
 		}
 	}
 }
@@ -99,6 +114,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case checkoutMsg:
+		m.message = msg.message
+		m.err = msg.err
+		m.loading = false
+		return m, nil
+
 	case tea.KeyPressMsg:
 
 		switch msg.String() {
@@ -119,7 +140,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.changes) == 0 {
 				return m, nil
 			}
-			m.err = m.backend.Checkout(m.changes[m.cursor])
+			m.loading = true
+			m.message = ""
+			m.err = nil
+			return m, tea.Batch(m.spinner.Tick, checkoutChangeCmd(m.changes[m.cursor], m.backend))
 		}
 	}
 
@@ -153,19 +177,48 @@ func (m model) renderChangeRow(i int) string {
 	))
 }
 
-func (m model) View() tea.View {
+func (m model) renderFooter() string {
+	const shortcutHints = "c: checkout | w: checkout to worktree | p: cherry-pick | q: quit"
+	var message string
+
 	if m.loading {
-		v := tea.NewView(m.spinner.View() + " Loading changes...\n")
-		v.AltScreen = true
-		return v
+		message = m.spinner.View() + " Loading ..."
+	} else if m.err != nil {
+		message = fmt.Sprintf("Error: %s", m.err.Error())
+	} else {
+		message = m.message
 	}
 
-	if m.err != nil {
-		v := tea.NewView(fmt.Sprintf("Error: %s\n", m.err.Error()))
-		v.AltScreen = true
-		return v
+	if m.width <= 0 {
+		return strings.TrimSpace(message + " " + shortcutHints)
 	}
 
+	shortcutWidth := lipgloss.Width(shortcutHints)
+	if shortcutWidth >= m.width {
+		return truncateRunes(shortcutHints, m.width)
+	}
+
+	messageMaxWidth := m.width - shortcutWidth - 1
+	message = truncateRunes(message, messageMaxWidth)
+	spaces := m.width - lipgloss.Width(message) - shortcutWidth
+
+	return message + strings.Repeat(" ", spaces) + shortcutHints
+}
+
+func truncateRunes(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+
+	return string(runes[:width])
+}
+
+func (m model) View() tea.View {
 	rows := []string{
 		fmt.Sprintf(
 			"  %-*s %-*s %-*s",
@@ -190,11 +243,11 @@ func (m model) View() tea.View {
 
 	for i := 0; i < mainViewportSize; i++ {
 		changeIndex := i + scrollOffset
-		if len(m.changes) <= changeIndex {
-			break
+		if len(m.changes) > changeIndex {
+			rows = append(rows, m.renderChangeRow(changeIndex))
+		} else {
+			rows = append(rows, "")
 		}
-
-		rows = append(rows, m.renderChangeRow(changeIndex))
 	}
 
 	boxStyle := lipgloss.NewStyle().
@@ -206,7 +259,7 @@ func (m model) View() tea.View {
 	}
 
 	s := boxStyle.Render(strings.Join(rows, "\n"))
-	s += "\nq: quit | c: checkout | w: checkout to worktree | p: cherry-pick\n"
+	s += "\n" + m.renderFooter()
 
 	v := tea.NewView(s)
 	v.AltScreen = true
