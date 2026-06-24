@@ -20,11 +20,9 @@ func (m changeDetailsModel) View(width int, height int) string {
 		Border(lipgloss.RoundedBorder()).
 		Padding(1, 2)
 
-	if width > 0 {
-		boxStyle = boxStyle.
-			Width(max(0, width-2)).
-			Height(max(0, height-2))
-	}
+	boxStyle = boxStyle.
+		Width(max(0, width-2)).
+		Height(max(0, height-1))
 
 	s := boxStyle.Render("")
 	return s
