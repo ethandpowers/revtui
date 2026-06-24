@@ -10,25 +10,51 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-type columnConfig struct {
-	longestChangeID int
-	longestSubject  int
-	longestOwner    int
-}
-
 type model struct {
 	width  int
 	height int
 
-	backend      Backend
-	changes      []Change
-	cursor       int
-	columnConfig columnConfig
+	backend Backend
+	changes []Change
 
-	loading bool
-	spinner spinner.Model
+	loading      bool
+	spinner      spinner.Model
+	message      string
+	showDetails  bool
+	changesModel changeListModel
+	detailsModel changeDetailsModel
+	err          error
+}
+
+type startLoadingMsg struct {
+	message string
+}
+
+func startLoading(message string) tea.Cmd {
+	return func() tea.Msg {
+		return startLoadingMsg{message: message}
+	}
+}
+
+type stopLoadingMsg struct {
 	message string
 	err     error
+}
+
+func stopLoading(message string, err error) tea.Cmd {
+	return func() tea.Msg {
+		return stopLoadingMsg{message, err}
+	}
+}
+
+type showDetailsMsg struct {
+	change Change
+}
+
+func showDetails(change Change) tea.Cmd {
+	return func() tea.Msg {
+		return showDetailsMsg{change}
+	}
 }
 
 func initialModel(backend Backend) model {
@@ -38,52 +64,47 @@ func initialModel(backend Backend) model {
 	return model{
 		backend: backend,
 		changes: make([]Change, 0),
-		cursor:  0,
-		loading: true,
-		spinner: s,
-	}
-}
-
-type changesLoadedMsg struct {
-	changes []Change
-	err     error
-}
-
-func loadChangesCmd(backend Backend) tea.Cmd {
-	return func() tea.Msg {
-		changes, err := backend.GetChanges()
-		return changesLoadedMsg{
-			changes: changes,
-			err:     err,
-		}
-	}
-}
-
-type checkoutMsg struct {
-	message string
-	err     error
-}
-
-func checkoutChangeCmd(change Change, backend Backend) tea.Cmd {
-	return func() tea.Msg {
-		err := backend.Checkout(change)
-		return checkoutMsg{
-			"Done",
-			err,
-		}
+		changesModel: changeListModel{
+			backend: backend,
+			changes: make([]Change, 0),
+			cursor:  0,
+		},
+		loading:     true,
+		spinner:     s,
+		showDetails: false,
 	}
 }
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		loadChangesCmd(m.backend),
+		m.changesModel.Init(),
 	)
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+func (m model) updateChildren(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 
+	if m.showDetails {
+		var cmd tea.Cmd
+		m.detailsModel, cmd = m.detailsModel.Update(msg)
+		cmds = append(cmds, cmd)
+	} else {
+		var cmd tea.Cmd
+		m.changesModel, cmd = m.changesModel.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	if m.loading {
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -92,89 +113,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
-	case changesLoadedMsg:
+	case startLoadingMsg:
+		m.loading = true
+		m.message = msg.message
+		return m, m.spinner.Tick
 
-		longestChangeID := len(ChangeIDField)
-		longestSubject := len(SubjectField)
-		longestOwner := len(OwnerField)
-
-		for _, change := range msg.changes {
-			longestChangeID = max(longestChangeID, len(change.ChangeID))
-			longestSubject = max(longestSubject, len(change.Title))
-			longestOwner = max(longestOwner, len(userDisplayName(&change.Author)))
-		}
-
-		m.changes = msg.changes
+	case stopLoadingMsg:
 		m.loading = false
-		m.columnConfig = columnConfig{
-			longestChangeID,
-			longestSubject,
-			longestOwner,
-		}
+		m.message = msg.message
 		m.err = msg.err
 		return m, nil
 
-	case checkoutMsg:
-		m.message = msg.message
-		m.err = msg.err
-		m.loading = false
+	case showDetailsMsg:
+		m.showDetails = true
+		m.detailsModel.change = msg.change
 		return m, nil
 
 	case tea.KeyPressMsg:
 
 		switch msg.String() {
+
 		case "ctrl+c", "q":
 			return m, tea.Quit
 
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-
-		case "down", "j":
-			if m.cursor < len(m.changes)-1 {
-				m.cursor++
-			}
-
-		case "c":
-			if len(m.changes) == 0 {
-				return m, nil
-			}
-			m.loading = true
-			m.message = ""
-			m.err = nil
-			return m, tea.Batch(m.spinner.Tick, checkoutChangeCmd(m.changes[m.cursor], m.backend))
+		case "esc":
+			m.showDetails = false
+			return m, nil
 		}
 	}
 
-	if m.loading {
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
-}
-
-func (m model) renderChangeRow(i int) string {
-	change := m.changes[i]
-	style := lipgloss.NewStyle()
-	cursor := " "
-
-	if m.cursor == i {
-		cursor = ">"
-		style = style.Background(lipgloss.Blue)
-	}
-
-	return style.Render(fmt.Sprintf(
-		"%s %-*s %-*s %-*s",
-		cursor,
-		m.columnConfig.longestChangeID,
-		change.ChangeID,
-		m.columnConfig.longestSubject,
-		change.Title,
-		m.columnConfig.longestOwner,
-		userDisplayName(&change.Author),
-	))
+	return m.updateChildren(msg)
 }
 
 func (m model) renderFooter() string {
@@ -219,45 +187,14 @@ func truncateRunes(s string, width int) string {
 }
 
 func (m model) View() tea.View {
-	rows := []string{
-		fmt.Sprintf(
-			"  %-*s %-*s %-*s",
-			m.columnConfig.longestChangeID,
-			ChangeIDField,
-			m.columnConfig.longestSubject,
-			SubjectField,
-			m.columnConfig.longestOwner,
-			OwnerField,
-		),
+	s := ""
+	if m.showDetails {
+		s = m.detailsModel.View(m.width, m.height)
+	} else {
+		s = m.changesModel.View(m.width, m.height)
 	}
 
-	mainViewportSize := max(m.height-6, 0)
-
-	scrollOffset := 0
-	if m.cursor >= mainViewportSize && mainViewportSize > 0 {
-		scrollOffset = m.cursor - mainViewportSize + 1
-	}
-
-	for i := range mainViewportSize {
-		changeIndex := i + scrollOffset
-		if len(m.changes) > changeIndex {
-			rows = append(rows, m.renderChangeRow(changeIndex))
-		} else {
-			rows = append(rows, "")
-		}
-	}
-
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Padding(1, 2)
-
-	if m.width > 0 {
-		boxStyle = boxStyle.Width(max(0, m.width-2))
-	}
-
-	s := boxStyle.Render(strings.Join(rows, "\n"))
 	s += "\n" + m.renderFooter()
-
 	v := tea.NewView(s)
 	v.AltScreen = true
 
