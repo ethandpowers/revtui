@@ -231,17 +231,14 @@ func (m model) View() tea.View {
 		),
 	}
 
-	mainViewportSize := m.height - 6
-	if mainViewportSize < 0 {
-		mainViewportSize = 0
-	}
+	mainViewportSize := max(m.height-6, 0)
 
 	scrollOffset := 0
 	if m.cursor >= mainViewportSize && mainViewportSize > 0 {
 		scrollOffset = m.cursor - mainViewportSize + 1
 	}
 
-	for i := 0; i < mainViewportSize; i++ {
+	for i := range mainViewportSize {
 		changeIndex := i + scrollOffset
 		if len(m.changes) > changeIndex {
 			rows = append(rows, m.renderChangeRow(changeIndex))
