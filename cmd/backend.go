@@ -9,16 +9,38 @@ type User struct {
 	Email    string
 }
 
+type ReviewStatus string
+
+const (
+	ReviewStatusUnknown        ReviewStatus = "unknown"
+	ReviewStatusNotReady       ReviewStatus = "not_ready"
+	ReviewStatusReadyForReview ReviewStatus = "ready_for_review"
+	ReviewStatusReviewed       ReviewStatus = "reviewed"
+	ReviewStatusVerified       ReviewStatus = "verified"
+	ReviewStatusBlocked        ReviewStatus = "blocked"
+)
+
+type ReviewSummary struct {
+	Primary  ReviewStatus
+	Statuses []ReviewStatus
+}
+
+type ChangeFlags struct {
+	HasConflicts     bool
+	IsWorkInProgress bool
+}
+
 type Change struct {
-	ChangeID  string
-	Title     string
-	Status    string // "open" / "merged" / "closed" / "draft"
-	Author    User
-	Project   string
-	Branch    string
-	Created   time.Time
-	Updated   time.Time
-	Mergeable bool
+	ChangeID string
+	Title    string
+	Status   string // "open" / "merged" / "closed" / "draft"
+	Review   ReviewSummary
+	Flags    ChangeFlags
+	Author   User
+	Project  string
+	Branch   string
+	Created  time.Time
+	Updated  time.Time
 }
 
 type Backend interface {

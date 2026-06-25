@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -125,7 +126,7 @@ type gerritChange struct {
 	SubmitRecords          []json.RawMessage                         `json:"submit_records"`
 	Requirements           []json.RawMessage                         `json:"requirements"`
 	SubmitRequirements     []json.RawMessage                         `json:"submit_requirements"`
-	Labels                 map[string]json.RawMessage                `json:"labels"`
+	Labels                 map[string]gerritLabelInfo                `json:"labels"`
 	PermittedLabels        map[string][]string                       `json:"permitted_labels"`
 	RemovableLabels        map[string]map[string][]gerritAccountInfo `json:"removable_labels"`
 	RemovableReviewers     []gerritAccountInfo                       `json:"removable_reviewers"`
@@ -152,6 +153,18 @@ type gerritChange struct {
 
 type gerritRevision struct {
 	Number int `json:"_number"`
+}
+
+type gerritLabelInfo struct {
+	All []gerritApprovalInfo `json:"all"`
+}
+
+type gerritApprovalInfo struct {
+	AccountID int    `json:"_account_id"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	Username  string `json:"username"`
+	Value     int    `json:"value"`
 }
 
 func (c *GerritClient) GetCurrentUser() (*User, error) {
@@ -223,8 +236,105 @@ func (c *GerritClient) Logout() {
 	fmt.Println("Logged out")
 }
 
+func primaryReviewStatus(statuses []ReviewStatus) ReviewStatus {
+	priority := []ReviewStatus{
+		ReviewStatusBlocked,
+		ReviewStatusVerified,
+		ReviewStatusReviewed,
+		ReviewStatusReadyForReview,
+		ReviewStatusNotReady,
+		ReviewStatusUnknown,
+	}
+
+	for _, candidate := range priority {
+		if slices.Contains(statuses, candidate) {
+			return candidate
+		}
+	}
+
+	return ReviewStatusUnknown
+}
+
+func appendReviewStatus(statuses []ReviewStatus, status ReviewStatus) []ReviewStatus {
+	if slices.Contains(statuses, status) {
+		return statuses
+	}
+
+	return append(statuses, status)
+}
+
+func computeReviewSummary(c gerritChange) ReviewSummary {
+	statuses := make([]ReviewStatus, 0, 4)
+
+	if c.WorkInProgress {
+		statuses = appendReviewStatus(statuses, ReviewStatusNotReady)
+	}
+
+	if c.Status != "NEW" {
+		statuses = appendReviewStatus(statuses, ReviewStatusUnknown)
+		return ReviewSummary{
+			Primary:  primaryReviewStatus(statuses),
+			Statuses: []ReviewStatus{ReviewStatusUnknown},
+		}
+	}
+
+	ownerReady := false
+	reviewerApproved := false
+	blocked := false
+	verified := false
+
+	for _, approval := range c.Labels["Code-Review"].All {
+		if approval.Value < 0 {
+			blocked = true
+		}
+
+		if approval.Value < 1 {
+			continue
+		}
+
+		if approval.AccountID == c.Owner.AccountID {
+			ownerReady = true
+		} else {
+			reviewerApproved = true
+		}
+	}
+
+	for _, approval := range c.Labels["Verified"].All {
+		if approval.Value >= 1 {
+			verified = true
+		} else if approval.Value < 0 {
+			blocked = true
+		}
+	}
+
+	if blocked {
+		statuses = appendReviewStatus(statuses, ReviewStatusBlocked)
+	}
+
+	if verified {
+		statuses = appendReviewStatus(statuses, ReviewStatusVerified)
+	}
+
+	if reviewerApproved {
+		statuses = appendReviewStatus(statuses, ReviewStatusReviewed)
+	}
+
+	if ownerReady {
+		statuses = appendReviewStatus(statuses, ReviewStatusReadyForReview)
+	}
+
+	if len(statuses) == 0 {
+		statuses = appendReviewStatus(statuses, ReviewStatusNotReady)
+	}
+
+	return ReviewSummary{
+		Primary:  primaryReviewStatus(statuses),
+		Statuses: statuses,
+	}
+}
+
 func (c *GerritClient) GetChanges() ([]Change, error) {
-	url := "https://" + c.host + "/a/changes/?o=DETAILED_ACCOUNTS&o=CURRENT_REVISION"
+	url := "https://" + c.host + "/a/changes/?o=DETAILED_ACCOUNTS&o=CURRENT_REVISION&o=DETAILED_LABELS&o=SUBMITTABLE"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -254,21 +364,20 @@ func (c *GerritClient) GetChanges() ([]Change, error) {
 
 	changes := make([]Change, 0, len(c.changes))
 	for _, change := range c.changes {
-		mergeable := false
-		if change.Mergeable != nil {
-			mergeable = *change.Mergeable
-		}
-
 		changes = append(changes, Change{
-			ChangeID:  change.ChangeID,
-			Title:     change.Subject,
-			Status:    change.Status,
-			Author:    change.Owner.ToUser(),
-			Project:   change.Project,
-			Branch:    change.Branch,
-			Created:   parseGerritTime(change.Created),
-			Updated:   parseGerritTime(change.Updated),
-			Mergeable: mergeable,
+			ChangeID: change.ChangeID,
+			Title:    change.Subject,
+			Status:   change.Status,
+			Review:   computeReviewSummary(change),
+			Flags: ChangeFlags{
+				HasConflicts:     change.ContainsGitConflicts || (change.Mergeable != nil && !*change.Mergeable),
+				IsWorkInProgress: change.WorkInProgress,
+			},
+			Author:  change.Owner.ToUser(),
+			Project: change.Project,
+			Branch:  change.Branch,
+			Created: parseGerritTime(change.Created),
+			Updated: parseGerritTime(change.Updated),
 		})
 	}
 

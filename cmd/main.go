@@ -55,7 +55,9 @@ func handleNuke() {
 }
 
 const (
+	FlagsField    = ""
 	ChangeIDField = "Change ID"
+	ReviewField   = "Review"
 	SubjectField  = "Subject"
 	OwnerField    = "Owner"
 )
