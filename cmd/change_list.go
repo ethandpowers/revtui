@@ -274,7 +274,7 @@ func (m changeListModel) View(width int, height int) string {
 		Padding(1, 2)
 
 	if width > 0 {
-		boxStyle = boxStyle.Width(max(0, width-2))
+		boxStyle = boxStyle.Width(width)
 	}
 
 	s = boxStyle.Render(strings.Join(rows, "\n"))

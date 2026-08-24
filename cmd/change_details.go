@@ -21,7 +21,7 @@ func (m changeDetailsModel) View(width int, height int) string {
 		Padding(1, 2)
 
 	boxStyle = boxStyle.
-		Width(max(0, width-2)).
+		Width(width).
 		Height(max(0, height-1))
 
 	s := boxStyle.Render("")
