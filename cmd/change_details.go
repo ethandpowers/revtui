@@ -13,6 +13,8 @@ type changeDetailsModel struct {
 	patch          string
 	patchLineCount int
 	cursor         int
+	width          int
+	height         int
 }
 
 type patchLoadedMsg struct {
@@ -42,7 +44,7 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 			}
 
 		case "down", "j":
-			if m.cursor < m.patchLineCount-1 {
+			if m.cursor < m.patchLineCount-m.height+4 {
 				m.cursor++
 			}
 		}
