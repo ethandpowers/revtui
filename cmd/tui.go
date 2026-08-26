@@ -108,7 +108,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
@@ -124,10 +123,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case patchLoadedMsg:
+		m.loading = false
+		m.err = msg.err
+		// fall through to updateChildren so detailsModel sets the patch
+
 	case showDetailsMsg:
 		m.showDetails = true
+		m.detailsModel.backend = m.backend
 		m.detailsModel.change = msg.change
-		return m, nil
+		return m, tea.Batch(startLoading(""), fetchPatchCmd(m.backend, msg.change))
 
 	case tea.KeyPressMsg:
 
@@ -138,6 +143,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "esc":
 			m.showDetails = false
+			m.detailsModel.patch = ""
 			return m, nil
 		}
 	}

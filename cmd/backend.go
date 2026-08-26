@@ -48,5 +48,6 @@ type Backend interface {
 	Logout()
 	GetCurrentUser() (*User, error)
 	GetChanges() ([]Change, error)
+	GetPatch(Change) (string, error)
 	Checkout(Change) error
 }

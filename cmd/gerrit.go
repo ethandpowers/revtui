@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -434,4 +435,41 @@ func (c *GerritClient) Checkout(change Change) error {
 	}
 
 	return nil
+}
+
+func (c *GerritClient) GetPatch(change Change) (string, error) {
+	url := "https://" + c.host + "/a/changes/" + change.ChangeID + "/revisions/current/patch"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.SetBasicAuth(c.username, c.password)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		responseBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		return "", errors.New(string(responseBody))
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	patch, err := base64.StdEncoding.DecodeString(string(bodyBytes))
+	if err != nil {
+		return "", err
+	}
+
+	return string(patch), nil
 }
