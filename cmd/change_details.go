@@ -2,6 +2,7 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,6 +16,12 @@ type changeDetailsModel struct {
 	cursor         int
 	width          int
 	height         int
+	lastTime       time.Time
+	lastKey        string
+}
+
+func (m *changeDetailsModel) maxCursor() int {
+	return m.patchLineCount - m.height + 4
 }
 
 type patchLoadedMsg struct {
@@ -36,16 +43,41 @@ func (m changeDetailsModel) Init() tea.Cmd {
 func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		key := msg.String()
 
-		switch msg.String() {
+		switch key {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
 
 		case "down", "j":
-			if m.cursor < m.patchLineCount-m.height+4 {
+			if m.cursor < m.maxCursor() {
 				m.cursor++
+			}
+
+		case "pgup":
+			m.cursor -= m.height - 5
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+
+		case "pgdown":
+			m.cursor += m.height - 5
+			if m.cursor > m.maxCursor() {
+				m.cursor = m.maxCursor()
+			}
+
+		case "G":
+			m.cursor = m.maxCursor()
+
+		case "g":
+			if m.lastKey == "g" && time.Since(m.lastTime) < 300*time.Millisecond {
+				m.cursor = 0
+				m.lastKey = ""
+			} else {
+				m.lastKey = msg.String()
+				m.lastTime = time.Now()
 			}
 		}
 
