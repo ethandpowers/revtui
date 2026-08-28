@@ -10,6 +10,13 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+type changesViewMode int
+
+const (
+	changeList changesViewMode = iota
+	changeGrid
+)
+
 type model struct {
 	width  int
 	height int
@@ -17,13 +24,15 @@ type model struct {
 	backend Backend
 	changes []Change
 
-	loading      bool
-	spinner      spinner.Model
-	message      string
-	showDetails  bool
-	changesModel changeListModel
-	detailsModel changeDetailsModel
-	err          error
+	loading         bool
+	spinner         spinner.Model
+	message         string
+	showDetails     bool
+	changesMode     changesViewMode
+	changeListModel changeListModel
+	changeGridModel changeGridModel
+	detailsModel    changeDetailsModel
+	err             error
 }
 
 type startLoadingMsg struct {
@@ -61,13 +70,29 @@ func initialModel(backend Backend) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
+	changes := make([]Change, 0)
+
 	return model{
-		backend: backend,
-		changes: make([]Change, 0),
-		changesModel: changeListModel{
+		backend:     backend,
+		changes:     make([]Change, 0),
+		changesMode: changeList,
+		changeListModel: changeListModel{
 			backend: backend,
-			changes: make([]Change, 0),
+			changes: changes,
 			cursor:  0,
+		},
+		changeGridModel: changeGridModel{
+			backend: backend,
+			columns: []changeGridColModel{
+				{ReviewStatusNotReady, make([]Change, 0)},
+				{ReviewStatusReadyForReview, make([]Change, 0)},
+				{ReviewStatusReviewed, make([]Change, 0)},
+				{ReviewStatusVerified, make([]Change, 0)},
+				{ReviewStatusBlocked, make([]Change, 0)},
+				{ReviewStatusUnknown, make([]Change, 0)},
+			},
+			xCursor: 0,
+			yCursor: 0,
 		},
 		loading:     true,
 		spinner:     s,
@@ -78,7 +103,9 @@ func initialModel(backend Backend) model {
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		m.changesModel.Init(),
+		m.changeListModel.Init(),
+		m.changeGridModel.Init(),
+		loadChangesCmd(m.backend),
 	)
 }
 
@@ -91,7 +118,11 @@ func (m model) updateChildren(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else {
 		var cmd tea.Cmd
-		m.changesModel, cmd = m.changesModel.Update(msg)
+		if m.changesMode == changeList {
+			m.changeListModel, cmd = m.changeListModel.Update(msg)
+		} else if m.changesMode == changeGrid {
+			m.changeGridModel, cmd = m.changeGridModel.Update(msg)
+		}
 		cmds = append(cmds, cmd)
 	}
 
@@ -130,6 +161,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		// fall through to updateChildren so detailsModel sets the patch
 
+	case changesLoadedMsg:
+		m.loading = false
+		m.err = msg.err
+		m.changes = msg.changes
+		m.changeListModel.changes = msg.changes
+
+		for _, change := range msg.changes {
+			for i, col := range m.changeGridModel.columns {
+				if col.status == change.Review.Primary {
+					m.changeGridModel.columns[i].changes = append(m.changeGridModel.columns[i].changes, change)
+				}
+			}
+		}
+		// fall through so the list/grid can do any necessary setup
+
 	case showDetailsMsg:
 		m.showDetails = true
 		m.detailsModel.backend = m.backend
@@ -147,6 +193,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showDetails = false
 			m.detailsModel.patch = ""
 			return m, nil
+
+		case "m":
+			if m.changesMode == changeList {
+				m.changesMode = changeGrid
+			} else {
+				m.changesMode = changeList
+			}
 		}
 	}
 
@@ -154,7 +207,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) renderFooter() string {
-	const shortcutHints = "c: checkout | w: checkout to worktree | p: cherry-pick | q: quit"
+	modeHint := ""
+	if !m.showDetails {
+		if m.changesMode == changeList {
+			modeHint = "m: toggle grid | "
+		} else {
+			modeHint = "m: toggle list | "
+		}
+	}
+	shortcutHints := modeHint + "c: checkout | w: checkout to worktree | p: cherry-pick | q: quit"
 	var message string
 
 	if m.loading {
@@ -198,8 +259,10 @@ func (m model) View() tea.View {
 	s := ""
 	if m.showDetails {
 		s = m.detailsModel.View(m.width, m.height)
-	} else {
-		s = m.changesModel.View(m.width, m.height)
+	} else if m.changesMode == changeList {
+		s = m.changeListModel.View(m.width, m.height)
+	} else if m.changesMode == changeGrid {
+		s = m.changeGridModel.View(m.width, m.height)
 	}
 
 	s += "\n" + m.renderFooter()
