@@ -21,7 +21,7 @@ type changeDetailsModel struct {
 }
 
 func (m *changeDetailsModel) maxCursor() int {
-	return m.patchLineCount - m.height + 4
+	return m.patchLineCount - m.height + 3
 }
 
 type patchLoadedMsg struct {
@@ -57,13 +57,13 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 			}
 
 		case "pgup":
-			m.cursor -= m.height - 5
+			m.cursor -= m.height - 4
 			if m.cursor < 0 {
 				m.cursor = 0
 			}
 
 		case "pgdown":
-			m.cursor += m.height - 5
+			m.cursor += m.height - 4
 			if m.cursor > m.maxCursor() {
 				m.cursor = m.maxCursor()
 			}
@@ -91,12 +91,12 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m changeDetailsModel) View(width int, height int) string {
+func (m changeDetailsModel) View() string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(1, 2).
-		Width(width).
-		Height(max(0, height-1))
+		Width(m.width).
+		Height(m.height)
 
 	content := ""
 	if len(m.patch) > 0 {
@@ -111,7 +111,7 @@ func (m changeDetailsModel) View(width int, height int) string {
 			}
 		}
 		start := min(m.cursor, len(lines)-1)
-		end := min(start+height-5, len(lines))
+		end := min(start+m.height-4, len(lines))
 		content = strings.Join(lines[start:end], "\n")
 	}
 	return boxStyle.Render(content)

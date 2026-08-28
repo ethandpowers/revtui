@@ -11,6 +11,9 @@ type changeGridModel struct {
 
 	xCursor int
 	yCursor int
+
+	width  int
+	height int
 }
 
 func (m changeGridModel) getRenderedCols() []changeGridColModel {
@@ -54,16 +57,16 @@ func (m changeGridModel) Update(msg tea.Msg) (changeGridModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m changeGridModel) View(width int, height int) string {
+func (m changeGridModel) View() string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		Padding(1, 2).
-		Width(width).
-		Height(height - 1)
+		Width(m.width).
+		Height(m.height)
 
 	const spacing = "  " // 1 character of space just wasn't doing it for me
 	colCount := len(m.getRenderedCols())
-	colWidth := (width-6)/colCount - len(spacing)
+	colWidth := (m.width-6)/colCount - len(spacing)
 	var renderedCols []string
 
 	for i, col := range m.getRenderedCols() {
@@ -71,7 +74,7 @@ func (m changeGridModel) View(width int, height int) string {
 		if i == m.xCursor {
 			cursor = &m.yCursor
 		}
-		renderedCols = append(renderedCols, col.View(colWidth, height-5, cursor))
+		renderedCols = append(renderedCols, col.View(colWidth, m.height-4, cursor))
 		if i < colCount-1 {
 			renderedCols = append(renderedCols, spacing)
 		}

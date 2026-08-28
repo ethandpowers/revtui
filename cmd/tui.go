@@ -141,8 +141,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
 		m.detailsModel.width = msg.Width
-		m.detailsModel.height = msg.Height
+		m.detailsModel.height = msg.Height - 1
+
+		m.changeGridModel.width = msg.Width
+		m.changeGridModel.height = msg.Height - 1
 		return m, nil
 
 	case startLoadingMsg:
@@ -258,11 +262,11 @@ func truncateRunes(s string, width int) string {
 func (m model) View() tea.View {
 	s := ""
 	if m.showDetails {
-		s = m.detailsModel.View(m.width, m.height)
+		s = m.detailsModel.View()
 	} else if m.changesMode == changeList {
 		s = m.changeListModel.View(m.width, m.height)
 	} else if m.changesMode == changeGrid {
-		s = m.changeGridModel.View(m.width, m.height)
+		s = m.changeGridModel.View()
 	}
 
 	s += "\n" + m.renderFooter()
