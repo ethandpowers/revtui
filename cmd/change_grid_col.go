@@ -35,10 +35,29 @@ func (m changeGridColModel) View(width int, height int, cursor *int) string {
 
 	s.Reset()
 
+	visibleChangeCount := (height - 2) / 4
+	if visibleChangeCount*4+3 <= height-2 {
+		visibleChangeCount++
+	}
+
+	changeStart := 0
+	if cursor != nil {
+		changeStart = *cursor - visibleChangeCount + 1
+	}
+
+	if changeStart < 0 {
+		changeStart = 0
+	}
+
 	for i, change := range m.changes {
+		lastVisibleChangeIndex := min(len(m.changes), changeStart+visibleChangeCount-1)
+		if i < changeStart || i > lastVisibleChangeIndex {
+			continue
+		}
 
 		var bgColor color.Color = nil
-		if cursor != nil && *cursor == i {
+		isActiveCell := cursor != nil && *cursor == i
+		if isActiveCell {
 			bgColor = lipgloss.Blue
 		}
 
@@ -68,7 +87,7 @@ func (m changeGridColModel) View(width int, height int, cursor *int) string {
 				Render(fmt.Sprintf("%-*.*s", width, width, change.Project)),
 		)
 
-		if i < len(m.changes)-1 {
+		if i < lastVisibleChangeIndex {
 			s.WriteString("\n")
 		}
 	}
