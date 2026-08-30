@@ -25,14 +25,21 @@ func (m changeGridColModel) Update(msg tea.Msg) (changeGridColModel, tea.Cmd) {
 
 func (m changeGridColModel) View(width int, visibleChangeCount int, cursor *int) string {
 	var s strings.Builder
-	s.WriteString(reviewStatusString(m.status, true))
+	headerStyle := getReviewStatusStyle(m.status)
+	changeCountStyle := lipgloss.NewStyle().Foreground(lipgloss.BrightBlack)
+
+	s.WriteString(headerStyle.Render(reviewStatusString(m.status, true)))
+	s.WriteString(changeCountStyle.Render(fmt.Sprintf(" %d", len(m.changes))))
 	s.WriteString("\n")
 
+	var separator strings.Builder
 	for range width {
-		s.WriteString("─")
+		separator.WriteString("─")
 	}
 
-	header := getReviewStatusStyle(m.status).Render(s.String())
+	s.WriteString(headerStyle.Render(separator.String()))
+
+	header := s.String()
 
 	s.Reset()
 
