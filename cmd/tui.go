@@ -225,6 +225,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "m":
+			if m.showDetails {
+				return m, nil
+			}
 			if m.changesMode == changeList {
 				m.changesMode = changeGrid
 			} else {
