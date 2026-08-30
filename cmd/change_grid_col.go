@@ -48,14 +48,27 @@ func (m changeGridColModel) View(width int, visibleChangeCount int, cursor *int)
 			bgColor = lipgloss.Blue
 		}
 
+		textWidth := width
+		flagCells := ""
+		if change.Flags.HasConflicts {
+			flagCells += lipgloss.NewStyle().Foreground(lipgloss.Red).Render("│")
+			textWidth--
+		}
+		if change.Flags.IsWorkInProgress {
+			flagCells += lipgloss.NewStyle().Foreground(lipgloss.Color("130")).Render("│")
+			textWidth--
+		}
+
 		s.WriteString("\n")
+		s.WriteString(flagCells)
 		s.WriteString(
 			lipgloss.NewStyle().
 				Background(bgColor).
-				Render(fmt.Sprintf("%-*.*s", width, width, change.Title)),
+				Render(fmt.Sprintf("%-*.*s", textWidth, textWidth, change.Title)),
 		)
 		s.WriteString("\n")
 
+		s.WriteString(flagCells)
 		metaText := userDisplayName(&change.Author)
 		if change.Branch != "" {
 			metaText += " · " + change.Branch
@@ -64,14 +77,15 @@ func (m changeGridColModel) View(width int, visibleChangeCount int, cursor *int)
 			lipgloss.NewStyle().
 				Foreground(lipgloss.BrightBlack).
 				Background(bgColor).
-				Render(fmt.Sprintf("%-*.*s", width, width, metaText)),
+				Render(fmt.Sprintf("%-*.*s", textWidth, textWidth, metaText)),
 		)
 		s.WriteString("\n")
+		s.WriteString(flagCells)
 		s.WriteString(
 			lipgloss.NewStyle().
 				Foreground(lipgloss.BrightBlack).
 				Background(bgColor).
-				Render(fmt.Sprintf("%-*.*s", width, width, change.Project)),
+				Render(fmt.Sprintf("%-*.*s", textWidth, textWidth, change.Project)),
 		)
 
 		if i < lastVisibleChangeIndex {
