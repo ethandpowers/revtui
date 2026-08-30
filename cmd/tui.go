@@ -17,6 +17,10 @@ const (
 	changeGrid
 )
 
+type changeListView interface {
+	SelectedChange() *Change
+}
+
 type model struct {
 	width  int
 	height int
@@ -33,6 +37,24 @@ type model struct {
 	changeGridModel changeGridModel
 	detailsModel    changeDetailsModel
 	err             error
+}
+
+func (m model) getChangeListView() changeListView {
+	if m.changesMode == changeList {
+		return m.changeListModel
+	} else if m.changesMode == changeGrid {
+		return m.changeGridModel
+	}
+
+	return nil
+}
+
+func (m model) getActiveChange() *Change {
+	listView := m.getChangeListView()
+	if listView == nil {
+		return nil
+	}
+	return listView.SelectedChange()
 }
 
 type startLoadingMsg struct {
@@ -208,6 +230,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.changesMode = changeList
 			}
+
+		case "c":
+			if len(m.changes) == 0 {
+				return m, nil
+			}
+
+			return m, tea.Batch(startLoading(""), checkoutChangeCmd(*m.getActiveChange(), m.backend))
+
+		case "enter":
+			if len(m.changes) == 0 {
+				return m, nil
+			}
+
+			return m, showDetails(*m.getActiveChange())
 		}
 	}
 

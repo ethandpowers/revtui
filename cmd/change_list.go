@@ -28,6 +28,14 @@ type changeListModel struct {
 	height int
 }
 
+func (m changeListModel) SelectedChange() *Change {
+	if len(m.changes) == 0 {
+		return nil
+	}
+
+	return &m.changes[m.cursor+m.scrollOffset]
+}
+
 func (m changeListModel) getVisibleChangeCount() int {
 	return max(0, m.height-5)
 }
@@ -110,20 +118,6 @@ func (m changeListModel) Update(msg tea.Msg) (changeListModel, tea.Cmd) {
 			} else if m.scrollOffset > 0 {
 				m.scrollOffset--
 			}
-
-		case "c":
-			if len(m.changes) == 0 {
-				return m, nil
-			}
-
-			return m, tea.Batch(startLoading(""), checkoutChangeCmd(m.changes[m.cursor], m.backend))
-
-		case "enter":
-			if len(m.changes) == 0 {
-				return m, nil
-			}
-
-			return m, showDetails(m.changes[m.cursor])
 		}
 	}
 

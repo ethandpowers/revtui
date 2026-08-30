@@ -16,6 +16,16 @@ type changeGridModel struct {
 	height int
 }
 
+func (m changeGridModel) SelectedChange() *Change {
+	targetCol := m.columns[m.xCursor]
+	i := m.yCursor + targetCol.scrollOffset
+	if len(targetCol.changes) <= i {
+		return nil
+	}
+
+	return &targetCol.changes[i]
+}
+
 func (m changeGridModel) getVisibleChangeCount() int {
 	visibleChangeCount := (m.height - 6) / 4
 	if visibleChangeCount*4+3 <= m.height-6 {
