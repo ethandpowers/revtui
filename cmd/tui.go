@@ -148,6 +148,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.changeGridModel.width = msg.Width
 		m.changeGridModel.height = msg.Height - 1
+
+		m.changeListModel.width = msg.Width
+		m.changeListModel.height = msg.Height - 1
 		return m, nil
 
 	case startLoadingMsg:
@@ -265,7 +268,7 @@ func (m model) View() tea.View {
 	if m.showDetails {
 		s = m.detailsModel.View()
 	} else if m.changesMode == changeList {
-		s = m.changeListModel.View(m.width, m.height)
+		s = m.changeListModel.View()
 	} else if m.changesMode == changeGrid {
 		s = m.changeGridModel.View()
 	}

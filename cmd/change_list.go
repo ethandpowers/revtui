@@ -21,7 +21,15 @@ type changeListModel struct {
 	changes []Change
 
 	cursor       int
+	scrollOffset int
 	columnConfig columnConfig
+
+	width  int
+	height int
+}
+
+func (m changeListModel) getVisibleChangeCount() int {
+	return max(0, m.height-5)
 }
 
 func (m changeListModel) renderChangeRow(i int) string {
@@ -31,7 +39,7 @@ func (m changeListModel) renderChangeRow(i int) string {
 	rowStyle := lipgloss.NewStyle()
 	cursor := " "
 
-	if m.cursor == i {
+	if m.cursor+m.scrollOffset == i {
 		cursor = ">"
 		bgColor := lipgloss.Blue
 		rowStyle = rowStyle.Background(bgColor)
@@ -88,14 +96,19 @@ func (m changeListModel) Update(msg tea.Msg) (changeListModel, tea.Cmd) {
 	case tea.KeyPressMsg:
 
 		switch msg.String() {
+		case "down", "j":
+			rowsVisible := m.getVisibleChangeCount()
+			numChanges := len(m.changes)
+			if m.cursor < rowsVisible-1 && m.cursor < numChanges-1 {
+				m.cursor++
+			} else if m.cursor+m.scrollOffset < numChanges-1 {
+				m.scrollOffset++
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
-			}
-
-		case "down", "j":
-			if m.cursor < len(m.changes)-1 {
-				m.cursor++
+			} else if m.scrollOffset > 0 {
+				m.scrollOffset--
 			}
 
 		case "c":
@@ -117,7 +130,7 @@ func (m changeListModel) Update(msg tea.Msg) (changeListModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m changeListModel) View(width int, height int) string {
+func (m changeListModel) View() string {
 	s := ""
 	rows := []string{
 		fmt.Sprintf(
@@ -135,15 +148,10 @@ func (m changeListModel) View(width int, height int) string {
 		),
 	}
 
-	mainViewportSize := max(height-6, 0)
+	visibleChanges := m.getVisibleChangeCount()
 
-	scrollOffset := 0
-	if m.cursor >= mainViewportSize && mainViewportSize > 0 {
-		scrollOffset = m.cursor - mainViewportSize + 1
-	}
-
-	for i := range mainViewportSize {
-		changeIndex := i + scrollOffset
+	for i := range visibleChanges {
+		changeIndex := i + m.scrollOffset
 		if len(m.changes) > changeIndex {
 			rows = append(rows, m.renderChangeRow(changeIndex))
 		} else {
@@ -155,8 +163,8 @@ func (m changeListModel) View(width int, height int) string {
 		Border(lipgloss.RoundedBorder()).
 		Padding(1, 2)
 
-	if width > 0 {
-		boxStyle = boxStyle.Width(width)
+	if m.width > 0 {
+		boxStyle = boxStyle.Width(m.width)
 	}
 
 	s = boxStyle.Render(strings.Join(rows, "\n"))
