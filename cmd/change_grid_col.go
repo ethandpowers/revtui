@@ -10,8 +10,9 @@ import (
 )
 
 type changeGridColModel struct {
-	status  ReviewStatus
-	changes []Change
+	status       ReviewStatus
+	changes      []Change
+	scrollOffset int
 }
 
 func (m changeGridColModel) Init() tea.Cmd {
@@ -22,7 +23,7 @@ func (m changeGridColModel) Update(msg tea.Msg) (changeGridColModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m changeGridColModel) View(width int, height int, cursor *int) string {
+func (m changeGridColModel) View(width int, visibleChangeCount int, cursor *int) string {
 	var s strings.Builder
 	s.WriteString(reviewStatusString(m.status, true))
 	s.WriteString("\n")
@@ -35,28 +36,14 @@ func (m changeGridColModel) View(width int, height int, cursor *int) string {
 
 	s.Reset()
 
-	visibleChangeCount := (height - 2) / 4
-	if visibleChangeCount*4+3 <= height-2 {
-		visibleChangeCount++
-	}
-
-	changeStart := 0
-	if cursor != nil {
-		changeStart = *cursor - visibleChangeCount + 1
-	}
-
-	if changeStart < 0 {
-		changeStart = 0
-	}
-
 	for i, change := range m.changes {
-		lastVisibleChangeIndex := min(len(m.changes), changeStart+visibleChangeCount-1)
-		if i < changeStart || i > lastVisibleChangeIndex {
+		lastVisibleChangeIndex := min(len(m.changes), m.scrollOffset+visibleChangeCount-1)
+		if i < m.scrollOffset || i > lastVisibleChangeIndex {
 			continue
 		}
 
 		var bgColor color.Color = nil
-		isActiveCell := cursor != nil && *cursor == i
+		isActiveCell := cursor != nil && *cursor == i-m.scrollOffset
 		if isActiveCell {
 			bgColor = lipgloss.Blue
 		}

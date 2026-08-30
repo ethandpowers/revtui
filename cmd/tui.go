@@ -84,12 +84,12 @@ func initialModel(backend Backend) model {
 		changeGridModel: changeGridModel{
 			backend: backend,
 			columns: []changeGridColModel{
-				{ReviewStatusNotReady, make([]Change, 0)},
-				{ReviewStatusReadyForReview, make([]Change, 0)},
-				{ReviewStatusReviewed, make([]Change, 0)},
-				{ReviewStatusVerified, make([]Change, 0)},
-				{ReviewStatusBlocked, make([]Change, 0)},
-				{ReviewStatusUnknown, make([]Change, 0)},
+				{ReviewStatusNotReady, make([]Change, 0), 0},
+				{ReviewStatusReadyForReview, make([]Change, 0), 0},
+				{ReviewStatusReviewed, make([]Change, 0), 0},
+				{ReviewStatusVerified, make([]Change, 0), 0},
+				{ReviewStatusBlocked, make([]Change, 0), 0},
+				{ReviewStatusUnknown, make([]Change, 0), 0},
 			},
 			xCursor: 0,
 			yCursor: 0,
@@ -118,9 +118,10 @@ func (m model) updateChildren(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else {
 		var cmd tea.Cmd
-		if m.changesMode == changeList {
+		switch m.changesMode {
+		case changeList:
 			m.changeListModel, cmd = m.changeListModel.Update(msg)
-		} else if m.changesMode == changeGrid {
+		case changeGrid:
 			m.changeGridModel, cmd = m.changeGridModel.Update(msg)
 		}
 		cmds = append(cmds, cmd)

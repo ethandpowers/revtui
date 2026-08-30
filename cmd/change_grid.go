@@ -16,6 +16,15 @@ type changeGridModel struct {
 	height int
 }
 
+func (m changeGridModel) getVisibleChangeCount() int {
+	visibleChangeCount := (m.height - 6) / 4
+	if visibleChangeCount*4+3 <= m.height-6 {
+		visibleChangeCount++
+	}
+
+	return visibleChangeCount
+}
+
 func (m changeGridModel) getRenderedCols() []changeGridColModel {
 	renderedCols := make([]changeGridColModel, 0, 5)
 
@@ -42,9 +51,21 @@ func (m changeGridModel) Update(msg tea.Msg) (changeGridModel, tea.Cmd) {
 		case "left", "h":
 			m.xCursor = max(m.xCursor-1, 0)
 		case "down", "j":
-			m.yCursor++
+			rowsVisible := m.getVisibleChangeCount()
+			targetCol := &m.columns[m.xCursor]
+			numChanges := len(targetCol.changes)
+			if m.yCursor < rowsVisible-1 && m.yCursor < numChanges-1 {
+				m.yCursor++
+			} else if m.yCursor+targetCol.scrollOffset < numChanges-1 {
+				targetCol.scrollOffset++
+			}
 		case "up", "k":
-			m.yCursor = max(m.yCursor-1, 0)
+			targetCol := &m.columns[m.xCursor]
+			if m.yCursor > 0 {
+				m.yCursor--
+			} else if targetCol.scrollOffset > 0 {
+				targetCol.scrollOffset--
+			}
 		case "right", "l":
 			m.xCursor = min(m.xCursor+1, colCount-1)
 		}
@@ -69,12 +90,14 @@ func (m changeGridModel) View() string {
 	colWidth := (m.width-6)/colCount - len(spacing)
 	var renderedCols []string
 
+	visibleChangeCount := m.getVisibleChangeCount()
+
 	for i, col := range m.getRenderedCols() {
 		var cursor *int
 		if i == m.xCursor {
 			cursor = &m.yCursor
 		}
-		renderedCols = append(renderedCols, col.View(colWidth, m.height-4, cursor))
+		renderedCols = append(renderedCols, col.View(colWidth, visibleChangeCount, cursor))
 		if i < colCount-1 {
 			renderedCols = append(renderedCols, spacing)
 		}
