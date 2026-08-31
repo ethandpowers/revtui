@@ -100,19 +100,25 @@ func (m changeDetailsModel) View() string {
 
 	content := ""
 	if len(m.patch) > 0 {
-		addStyle := lipgloss.NewStyle().Foreground(lipgloss.Green)
-		removeStyle := lipgloss.NewStyle().Foreground(lipgloss.Red)
-		lines := strings.Split(m.patch, "\n")
-		for index, line := range lines {
-			if strings.HasPrefix(line, "+") {
-				lines[index] = addStyle.Render(line)
-			} else if strings.HasPrefix(line, "-") {
-				lines[index] = removeStyle.Render(line)
-			}
+		patch, err := ParsePatch(m.patch)
+		if err != nil {
+			content = err.Error()
+		} else {
+			content = patch.Metadata.String()
 		}
-		start := min(m.cursor, len(lines)-1)
-		end := min(start+m.height-4, len(lines))
-		content = strings.Join(lines[start:end], "\n")
+		// addStyle := lipgloss.NewStyle().Foreground(lipgloss.Green)
+		// removeStyle := lipgloss.NewStyle().Foreground(lipgloss.Red)
+		// lines := strings.Split(m.patch, "\n")
+		// for index, line := range lines {
+		// 	if strings.HasPrefix(line, "+") {
+		// 		lines[index] = addStyle.Render(line)
+		// 	} else if strings.HasPrefix(line, "-") {
+		// 		lines[index] = removeStyle.Render(line)
+		// 	}
+		// }
+		// start := min(m.cursor, len(lines)-1)
+		// end := min(start+m.height-4, len(lines))
+		// content += strings.Join(lines[start:end], "\n")
 	}
 	return boxStyle.Render(content)
 }
