@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/mail"
 	"strconv"
 	"strings"
@@ -49,6 +50,19 @@ const (
 	DiffLineAdded
 	DiffLineRemoved
 )
+
+func (d DiffLineType) String() string {
+	switch d {
+	case DiffLineContext:
+		return " "
+	case DiffLineAdded:
+		return "+"
+	case DiffLineRemoved:
+		return "-"
+	}
+
+	return "unknown"
+}
 
 func (p Patch) String() string {
 	var s strings.Builder
@@ -100,7 +114,23 @@ func (d FileDiff) String() string {
 	s.WriteString(d.NewPath)
 	s.WriteString("\n")
 
-	// TODO: Print hunks
+	for _, hunk := range d.Hunks {
+		s.WriteString(hunk.String())
+		s.WriteString("\n")
+	}
+	return s.String()
+}
+
+func (h Hunk) String() string {
+	var s strings.Builder
+
+	s.WriteString(fmt.Sprintf("@@ -%d,%d +%d,%d @@\n", h.OldStart, h.OldCount, h.NewStart, h.NewCount))
+	for _, line := range h.Lines {
+		s.WriteString(line.Type.String())
+		s.WriteString(line.Text)
+		s.WriteString("\n")
+	}
+
 	return s.String()
 }
 
@@ -251,6 +281,8 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 	var files []FileDiff
 
 	var activeHunk *Hunk = nil
+	oldSeen := 0
+	newSeen := 0
 
 	for _, line := range lines {
 		if activeHunk == nil {
@@ -264,7 +296,7 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 				files[len(files)-1].NewPath = newPath
 			} else if strings.HasPrefix(line, "--- ") {
 				if len(files) == 0 {
-					return files, errors.New("Malformed diff")
+					return files, errors.New("Malformed diff on")
 				}
 
 				files[len(files)-1].OldPath = cleanDiffPath(line[4:])
@@ -274,15 +306,94 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 				}
 
 				files[len(files)-1].NewPath = cleanDiffPath(line[4:])
-			} else if strings.HasPrefix(line, "@@ ") && strings.HasSuffix(line, " @@") {
-				// TODO: Parse hunk header
+			} else if strings.HasPrefix(line, "@@ ") && strings.Contains(line[3:], " @@") {
+				hunk, err := parseHunkHeader(line)
+				if err != nil {
+					return files, err
+				}
+				activeHunk = &hunk
 			}
 		} else {
-			// TODO: Parse Hunk lines
+			if len(line) == 0 {
+				continue
+			}
+			prefix := line[0:1]
+			srcLine := line[1:]
+
+			hunkLine := DiffLine{
+				Text: srcLine,
+			}
+
+			switch prefix {
+			case " ":
+				hunkLine.Type = DiffLineContext
+				newSeen++
+				oldSeen++
+			case "+":
+				hunkLine.Type = DiffLineAdded
+				newSeen++
+			case "-":
+				hunkLine.Type = DiffLineRemoved
+				oldSeen++
+			}
+
+			activeHunk.Lines = append(activeHunk.Lines, hunkLine)
+
+			if oldSeen == activeHunk.OldCount && newSeen == activeHunk.NewCount {
+				files[len(files)-1].Hunks = append(files[len(files)-1].Hunks, *activeHunk)
+				activeHunk = nil
+			}
 		}
 	}
 
 	return files, nil
+}
+
+func parseHunkHeader(line string) (Hunk, error) {
+	hunk := Hunk{}
+	strippedLine := line[3 : strings.Index(line[3:], " @@")+3]
+	pairs := strings.Fields(strippedLine)
+	if len(pairs) != 2 {
+		return hunk, errors.New(fmt.Sprintf("Malformed hunk header: %s -> %s", line, strippedLine))
+	}
+
+	for i, pair := range pairs {
+		start, count, err := parseHunkRange(pair)
+		if err != nil {
+			return hunk, errors.New(fmt.Sprintf("Malformed hunk header: %s -> %s", line, strippedLine))
+		}
+
+		if i == 0 {
+			hunk.OldStart = start
+			hunk.OldCount = count
+		} else {
+			hunk.NewStart = start
+			hunk.NewCount = count
+		}
+	}
+
+	return hunk, nil
+}
+
+func parseHunkRange(value string) (start int, count int, err error) {
+	value = strings.TrimSpace(value)
+
+	parts := strings.SplitN(value, ",", 2)
+
+	start, err = strconv.Atoi(parts[0][1:])
+	if err != nil {
+		return 0, 0, err
+	}
+
+	count = 1
+	if len(parts) == 2 {
+		count, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+
+	return start, count, nil
 }
 
 func parseDiffLine(line string) (string, string, error) {
