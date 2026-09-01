@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -49,6 +50,20 @@ const (
 	DiffLineRemoved
 )
 
+func (p Patch) String() string {
+	var s strings.Builder
+
+	s.WriteString(p.Metadata.String())
+	s.WriteString("\n")
+
+	for _, file := range p.Files {
+		s.WriteString(file.String())
+		s.WriteString("\n")
+	}
+
+	return s.String()
+}
+
 func (m CommitMetadata) String() string {
 	var s strings.Builder
 
@@ -69,13 +84,30 @@ func (m CommitMetadata) String() string {
 	s.WriteString("\n")
 
 	s.WriteString(m.Body)
+	s.WriteString("\n")
 
+	return s.String()
+}
+
+func (d FileDiff) String() string {
+	var s strings.Builder
+
+	s.WriteString("--- ")
+	s.WriteString(d.OldPath)
+	s.WriteString("\n")
+
+	s.WriteString("+++ ")
+	s.WriteString(d.NewPath)
+	s.WriteString("\n")
+
+	// TODO: Print hunks
 	return s.String()
 }
 
 func ParsePatch(raw string) (Patch, error) {
 	patch := Patch{}
-	meta, err := parsePatchMetadata(raw)
+	lines := strings.Split(raw, "\n")
+	meta, next, err := parsePatchMetadata(lines)
 	patch.Metadata = meta
 
 	// Yes, this is intentional.  I want the partially-parsed metadata to be assigned to the patch before we return
@@ -83,12 +115,14 @@ func ParsePatch(raw string) (Patch, error) {
 		return patch, err
 	}
 
-	return patch, nil
+	files, err := parsePatchDiff(lines[next:])
+	patch.Files = files
+
+	return patch, err
 }
 
-func parsePatchMetadata(raw string) (CommitMetadata, error) {
+func parsePatchMetadata(lines []string) (CommitMetadata, int, error) {
 	meta := CommitMetadata{}
-	lines := strings.Split(raw, "\n")
 
 	headerSeparatorIndex := -1
 
@@ -109,17 +143,17 @@ func parsePatchMetadata(raw string) (CommitMetadata, error) {
 	}
 
 	if headerSeparatorIndex == -1 || metaSeparatorIndex == -1 {
-		return meta, errors.New("Malformed patch header")
+		return meta, 0, errors.New("Malformed patch header")
 	}
 
 	err := parseHeaders(lines[:headerSeparatorIndex], &meta)
 	if err != nil {
-		return meta, err
+		return meta, metaSeparatorIndex + 1, err
 	}
 
-	meta.Body += strings.Join(lines[headerSeparatorIndex+1:metaSeparatorIndex], "\n")
+	meta.Body = strings.Join(lines[headerSeparatorIndex+1:metaSeparatorIndex], "\n")
 
-	return meta, nil
+	return meta, metaSeparatorIndex + 1, nil
 }
 
 func parseHeaders(lines []string, meta *CommitMetadata) error {
@@ -140,7 +174,7 @@ func parseHeaders(lines []string, meta *CommitMetadata) error {
 
 		} else if strings.HasPrefix(line, "Date:") {
 			meta.Date = parsePatchDate(strings.TrimSpace(line[len("Date:"):]))
-		} else if strings.HasPrefix(line, "Subject: ") {
+		} else if strings.HasPrefix(line, "Subject:") {
 			meta.Subject = strings.TrimSpace(line[len("Subject:"):])
 		}
 	}
@@ -211,4 +245,94 @@ func parsePatchDate(dateStr string) time.Time {
 	}
 
 	return time.Time{}
+}
+
+func parsePatchDiff(lines []string) ([]FileDiff, error) {
+	var files []FileDiff
+
+	var activeHunk *Hunk = nil
+
+	for _, line := range lines {
+		if activeHunk == nil {
+			if strings.HasPrefix(line, "diff --git ") {
+				files = append(files, FileDiff{})
+				oldPath, newPath, err := parseDiffLine(line)
+				if err != nil {
+					return files, err
+				}
+				files[len(files)-1].OldPath = oldPath
+				files[len(files)-1].NewPath = newPath
+			} else if strings.HasPrefix(line, "--- ") {
+				if len(files) == 0 {
+					return files, errors.New("Malformed diff")
+				}
+
+				files[len(files)-1].OldPath = cleanDiffPath(line[4:])
+			} else if strings.HasPrefix(line, "+++ ") {
+				if len(files) == 0 {
+					return files, errors.New("Malformed diff")
+				}
+
+				files[len(files)-1].NewPath = cleanDiffPath(line[4:])
+			} else if strings.HasPrefix(line, "@@ ") && strings.HasSuffix(line, " @@") {
+				// TODO: Parse hunk header
+			}
+		} else {
+			// TODO: Parse Hunk lines
+		}
+	}
+
+	return files, nil
+}
+
+func parseDiffLine(line string) (string, string, error) {
+	stripped := strings.TrimSpace(line[len("diff --git "):])
+
+	strs := make([]string, 0, 2)
+	var s strings.Builder
+	quoteCount := 0
+
+	for _, currentRune := range stripped {
+		if currentRune == ' ' {
+			if quoteCount%2 == 0 {
+				if s.Len() > 0 {
+					strs = append(strs, s.String())
+					s.Reset()
+				}
+				continue
+			}
+		} else if currentRune == '"' {
+			quoteCount++
+		}
+		s.WriteRune(currentRune)
+	}
+
+	if s.Len() > 0 {
+		strs = append(strs, s.String())
+	}
+
+	if len(strs) != 2 {
+		return "", "", errors.New("Failed to parse diff line")
+	}
+
+	return cleanDiffPath(strs[0]), cleanDiffPath(strs[1]), nil
+}
+
+func cleanDiffPath(path string) string {
+	path = strings.TrimSpace(path)
+
+	if path == "/dev/null" {
+		return ""
+	}
+
+	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
+		if unquoted, err := strconv.Unquote(path); err == nil {
+			path = unquoted
+		}
+	}
+
+	path = strings.TrimPrefix(path, "a/")
+	path = strings.TrimPrefix(path, "b/")
+
+	return path
 }

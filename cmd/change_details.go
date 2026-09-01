@@ -104,7 +104,7 @@ func (m changeDetailsModel) View() string {
 		if err != nil {
 			content = err.Error()
 		} else {
-			content = patch.Metadata.String()
+			content = patch.String()
 		}
 		// addStyle := lipgloss.NewStyle().Foreground(lipgloss.Green)
 		// removeStyle := lipgloss.NewStyle().Foreground(lipgloss.Red)
