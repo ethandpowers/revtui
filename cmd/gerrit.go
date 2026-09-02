@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"slices"
@@ -438,7 +439,19 @@ func (c *GerritClient) Checkout(change Change) error {
 }
 
 func (c *GerritClient) GetPatch(change Change) (string, error) {
-	url := "https://" + c.host + "/a/changes/" + change.ChangeID + "/revisions/current/patch"
+	var matchingChange *gerritChange
+	for i := range c.changes {
+		if c.changes[i].ChangeID == change.ChangeID {
+			matchingChange = &c.changes[i]
+			break
+		}
+	}
+
+	if matchingChange == nil {
+		return "", fmt.Errorf("change %s was not found in cached Gerrit changes", change.ChangeID)
+	}
+
+	url := "https://" + c.host + "/a/changes/" + url.PathEscape(change.Project) + "~" + strconv.Itoa(matchingChange.Number) + "/revisions/current/patch"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
