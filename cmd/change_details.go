@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,8 +13,10 @@ import (
 type changeDetailsModel struct {
 	backend        Backend
 	change         Change
-	patch          string
+	patch          *patch.Patch
+	prettyDetails  string
 	patchLineCount int
+	err            error
 	cursor         int
 	width          int
 	height         int
@@ -83,7 +86,15 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 		}
 
 	case patchLoadedMsg:
-		m.patch = msg.patch
+		patch, err := patch.ParsePatch(msg.patch)
+		m.patch = &patch
+		m.err = err
+		if err != nil {
+			break
+		}
+
+		m.prettyDetails = buildPrettyDetails(m.change, patch)
+
 		m.patchLineCount = len(strings.Split(msg.patch, "\n"))
 		m.cursor = 0
 
@@ -100,26 +111,100 @@ func (m changeDetailsModel) View() string {
 		Height(m.height)
 
 	content := ""
-	if len(m.patch) > 0 {
-		patch, err := patch.ParsePatch(m.patch)
-		if err != nil {
-			content = err.Error()
-		} else {
-			content = patch.String()
-		}
-		// addStyle := lipgloss.NewStyle().Foreground(lipgloss.Green)
-		// removeStyle := lipgloss.NewStyle().Foreground(lipgloss.Red)
-		// lines := strings.Split(m.patch, "\n")
-		// for index, line := range lines {
-		// 	if strings.HasPrefix(line, "+") {
-		// 		lines[index] = addStyle.Render(line)
-		// 	} else if strings.HasPrefix(line, "-") {
-		// 		lines[index] = removeStyle.Render(line)
-		// 	}
-		// }
-		// start := min(m.cursor, len(lines)-1)
-		// end := min(start+m.height-4, len(lines))
-		// content += strings.Join(lines[start:end], "\n")
+	if m.err != nil {
+		content = fmt.Sprintf("Error: %s", m.err.Error())
+	} else if len(m.prettyDetails) > 0 {
+		content = m.prettyDetails
 	}
 	return boxStyle.Render(content)
+}
+
+func buildPrettyDetails(change Change, p patch.Patch) string {
+	var s strings.Builder
+
+	hashStyle := lipgloss.
+		NewStyle()
+
+	s.WriteString(hashStyle.Render(" " + p.Metadata.Hash))
+	s.WriteString("\n")
+
+	s.WriteString(fmt.Sprintf(" %s  %s", change.Project, change.Branch))
+	s.WriteString("\n")
+
+	authorStyle := lipgloss.
+		NewStyle().
+		Foreground(lipgloss.BrightMagenta)
+
+	s.WriteString(authorStyle.Render(fmt.Sprintf(" %s", userDisplayName(&change.Author))))
+	s.WriteString("\n")
+
+	statusStyle := getReviewStatusStyle(change.Review.Primary)
+
+	s.WriteString(statusStyle.Render(reviewStatusString(change.Review.Primary, false)))
+	s.WriteString("\n\n")
+
+	titleStyle := lipgloss.
+		NewStyle().
+		Bold(true)
+	s.WriteString(titleStyle.Render(change.Title))
+	s.WriteString("\n\n")
+
+	s.WriteString(p.Metadata.Body)
+	s.WriteString("\n\n")
+
+	dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.BrightBlack)
+	divider := dividerStyle.Render(strings.Repeat("─", 72))
+	s.WriteString(divider)
+	s.WriteString("\n")
+
+	oldLineStyle := lipgloss.
+		NewStyle().
+		Foreground(lipgloss.BrightRed)
+	newLineStyle := lipgloss.
+		NewStyle().
+		Foreground(lipgloss.BrightGreen)
+
+	hunkHeaderStyle := lipgloss.
+		NewStyle().
+		Foreground(lipgloss.Cyan)
+
+	for fileIndex, file := range p.Files {
+		if fileIndex != 0 {
+			s.WriteString(divider)
+			s.WriteString("\n")
+		}
+		s.WriteString("--- ")
+		s.WriteString(file.OldPath)
+		s.WriteString("\n")
+
+		s.WriteString("+++ ")
+		s.WriteString(file.NewPath)
+		s.WriteString("\n")
+
+		s.WriteString(divider)
+		s.WriteString("\n")
+
+		for _, hunk := range file.Hunks {
+			header := fmt.Sprintf("@@ -%d +%d @@", hunk.OldCount, hunk.NewCount)
+			s.WriteString(hunkHeaderStyle.Render(header))
+			s.WriteString("\n")
+
+			for _, line := range hunk.Lines {
+				lineWithPrefix := line.Type.String() + line.Text
+
+				switch line.Type {
+				case patch.DiffLineContext:
+					s.WriteString(lineWithPrefix)
+				case patch.DiffLineRemoved:
+					s.WriteString(oldLineStyle.Render(lineWithPrefix))
+				case patch.DiffLineAdded:
+					s.WriteString(newLineStyle.Render(lineWithPrefix))
+				}
+
+				s.WriteString("\n")
+			}
+		}
+	}
+
+	return s.String()
 }
