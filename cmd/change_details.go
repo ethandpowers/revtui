@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/ethandpowers/revtui/internal/patch"
 )
 
 type changeDetailsModel struct {
@@ -100,7 +101,7 @@ func (m changeDetailsModel) View() string {
 
 	content := ""
 	if len(m.patch) > 0 {
-		patch, err := ParsePatch(m.patch)
+		patch, err := patch.ParsePatch(m.patch)
 		if err != nil {
 			content = err.Error()
 		} else {

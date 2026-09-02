@@ -1,4 +1,4 @@
-package main
+package patch
 
 import (
 	"errors"
@@ -17,11 +17,12 @@ type Patch struct {
 }
 
 type CommitMetadata struct {
-	Hash    string
-	Author  User
-	Date    time.Time
-	Subject string
-	Body    string
+	Hash        string
+	AuthorName  string
+	AuthorEmail string
+	Date        time.Time
+	Subject     string
+	Body        string
 }
 
 type FileDiff struct {
@@ -39,8 +40,9 @@ type Hunk struct {
 }
 
 type DiffLine struct {
-	Type DiffLineType
-	Text string
+	Type           DiffLineType
+	Text           string
+	NoNewlineAtEOF bool
 }
 
 type DiffLineType int
@@ -87,10 +89,10 @@ func (m CommitMetadata) String() string {
 
 	s.WriteString("Author:\n")
 	s.WriteString("	Name: ")
-	s.WriteString(m.Author.Name)
+	s.WriteString(m.AuthorName)
 	s.WriteString("\n")
 	s.WriteString("	Email: ")
-	s.WriteString(m.Author.Email)
+	s.WriteString(m.AuthorEmail)
 	s.WriteString("\n")
 
 	s.WriteString("Subject: ")
@@ -163,16 +165,21 @@ func parsePatchMetadata(lines []string) (CommitMetadata, int, error) {
 		}
 	}
 
+	if headerSeparatorIndex == -1 {
+		return meta, 0, errors.New("Malformed patch header")
+	}
+
 	metaSeparatorIndex := -1
 
-	for i, line := range lines {
+	for i := headerSeparatorIndex + 1; i < len(lines); i++ {
+		line := lines[i]
 		if line == MetadataSeparator {
 			metaSeparatorIndex = i
 			break
 		}
 	}
 
-	if headerSeparatorIndex == -1 || metaSeparatorIndex == -1 {
+	if metaSeparatorIndex == -1 {
 		return meta, 0, errors.New("Malformed patch header")
 	}
 
@@ -190,14 +197,15 @@ func parseHeaders(lines []string, meta *CommitMetadata) error {
 	unfolded := unfoldHeaders(lines)
 	for _, line := range unfolded {
 		if strings.HasPrefix(line, "From ") {
-			tokens := strings.Fields(line)
-			if len(tokens) < 2 {
-				return errors.New("Malformed hash line")
+			hash, err := parseHash(line)
+			meta.Hash = hash
+			if err != nil {
+				return err
 			}
-			meta.Hash = tokens[1]
 		} else if strings.HasPrefix(line, "From:") {
-			user, err := parsePatchAuthor(strings.TrimSpace(line[len("From:"):]))
-			meta.Author = user
+			name, email, err := parsePatchAuthor(line)
+			meta.AuthorName = name
+			meta.AuthorEmail = email
 			if err != nil {
 				return err
 			}
@@ -212,30 +220,33 @@ func parseHeaders(lines []string, meta *CommitMetadata) error {
 	return nil
 }
 
-func parsePatchAuthor(value string) (User, error) {
-	value = strings.TrimSpace(value)
+func parseHash(line string) (string, error) {
+	tokens := strings.Fields(line)
+	if len(tokens) < 2 {
+		return "", errors.New("Malformed hash line")
+	}
+
+	return tokens[1], nil
+}
+
+func parsePatchAuthor(line string) (string, string, error) {
+	value := strings.TrimSpace(strings.TrimPrefix(line, "From:"))
 
 	addr, err := mail.ParseAddress(value)
 	if err == nil {
-		return User{
-			Name:  addr.Name,
-			Email: addr.Address,
-		}, nil
+		return addr.Name, addr.Address, nil
 	}
 
 	start := strings.LastIndex(value, "<")
 	end := strings.LastIndex(value, ">")
 	if start == -1 || end == -1 || end < start {
-		return User{Name: value}, err
+		return value, "", err
 	}
 
 	name := strings.TrimSpace(value[:start])
 	email := strings.TrimSpace(value[start+1 : end])
 
-	return User{
-		Name:  name,
-		Email: email,
-	}, nil
+	return name, email, nil
 }
 
 func unfoldHeaders(lines []string) []string {
@@ -286,7 +297,15 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 
 	for _, line := range lines {
 		if activeHunk == nil {
-			if strings.HasPrefix(line, "diff --git ") {
+			if line == `\ No newline at end of file` {
+				if len(files) > 0 && len(files[len(files)-1].Hunks) > 0 {
+					hunks := files[len(files)-1].Hunks
+					lines := hunks[len(hunks)-1].Lines
+					if len(lines) > 0 {
+						files[len(files)-1].Hunks[len(hunks)-1].Lines[len(lines)-1].NoNewlineAtEOF = true
+					}
+				}
+			} else if strings.HasPrefix(line, "diff --git ") {
 				files = append(files, FileDiff{})
 				oldPath, newPath, err := parseDiffLine(line)
 				if err != nil {
@@ -312,9 +331,17 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 					return files, err
 				}
 				activeHunk = &hunk
+				oldSeen = 0
+				newSeen = 0
 			}
 		} else {
 			if len(line) == 0 {
+				continue
+			}
+			if line == `\ No newline at end of file` {
+				if len(activeHunk.Lines) > 0 {
+					activeHunk.Lines[len(activeHunk.Lines)-1].NoNewlineAtEOF = true
+				}
 				continue
 			}
 			prefix := line[0:1]
@@ -335,6 +362,8 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 			case "-":
 				hunkLine.Type = DiffLineRemoved
 				oldSeen++
+			default:
+				return files, errors.New("Malformed hunk line")
 			}
 
 			activeHunk.Lines = append(activeHunk.Lines, hunkLine)
@@ -351,7 +380,12 @@ func parsePatchDiff(lines []string) ([]FileDiff, error) {
 
 func parseHunkHeader(line string) (Hunk, error) {
 	hunk := Hunk{}
-	strippedLine := line[3 : strings.Index(line[3:], " @@")+3]
+	end := strings.Index(line[3:], " @@")
+	if end == -1 {
+		return hunk, errors.New(fmt.Sprintf("Malformed hunk header: %s", line))
+	}
+
+	strippedLine := line[3 : 3+end]
 	pairs := strings.Fields(strippedLine)
 	if len(pairs) != 2 {
 		return hunk, errors.New(fmt.Sprintf("Malformed hunk header: %s -> %s", line, strippedLine))
