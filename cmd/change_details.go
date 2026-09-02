@@ -25,7 +25,7 @@ type changeDetailsModel struct {
 }
 
 func (m *changeDetailsModel) maxCursor() int {
-	return m.patchLineCount - m.height + 3
+	return max(0, m.patchLineCount-m.height+3)
 }
 
 type patchLoadedMsg struct {
@@ -86,16 +86,16 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 		}
 
 	case patchLoadedMsg:
-		patch, err := patch.ParsePatch(msg.patch)
-		m.patch = &patch
+		parsedPatch, err := patch.ParsePatch(msg.patch)
+		m.patch = &parsedPatch
 		m.err = err
 		if err != nil {
 			break
 		}
 
-		m.prettyDetails = buildPrettyDetails(m.change, patch)
+		m.prettyDetails = buildPrettyDetails(m.change, parsedPatch)
 
-		m.patchLineCount = len(strings.Split(msg.patch, "\n"))
+		m.patchLineCount = len(strings.Split(m.prettyDetails, "\n"))
 		m.cursor = 0
 
 		return m, nil
@@ -114,8 +114,13 @@ func (m changeDetailsModel) View() string {
 	if m.err != nil {
 		content = fmt.Sprintf("Error: %s", m.err.Error())
 	} else if len(m.prettyDetails) > 0 {
-		content = m.prettyDetails
+
+		lines := strings.Split(m.prettyDetails, "\n")
+		start := max(0, min(m.cursor, len(lines)-1))
+		end := min(start+m.height-4, len(lines))
+		content += strings.Join(lines[start:end], "\n")
 	}
+
 	return boxStyle.Render(content)
 }
 
