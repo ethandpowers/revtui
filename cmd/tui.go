@@ -167,6 +167,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.detailsModel.width = msg.Width
 		m.detailsModel.height = msg.Height - 1
+		if m.detailsModel.patch != nil {
+			m.detailsModel.buildPrettyDetails()
+		}
 
 		m.changeGridModel.width = msg.Width
 		m.changeGridModel.height = msg.Height - 1
@@ -221,7 +224,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "esc":
 			m.showDetails = false
-			m.detailsModel.patch = ""
+			m.detailsModel.patch = nil
+			m.detailsModel.prettyDetails = ""
+			m.detailsModel.err = nil
 			return m, nil
 
 		case "m":
