@@ -173,6 +173,10 @@ func buildPrettyDetails(change Change, p patch.Patch) string {
 		NewStyle().
 		Foreground(lipgloss.Cyan)
 
+	noNewLineStyle := lipgloss.
+		NewStyle().
+		Foreground(lipgloss.BrightMagenta)
+
 	for fileIndex, file := range p.Files {
 		if fileIndex != 0 {
 			s.WriteString(divider)
@@ -207,6 +211,11 @@ func buildPrettyDetails(change Change, p patch.Patch) string {
 				}
 
 				s.WriteString("\n")
+
+				if line.NoNewlineAtEOF {
+					s.WriteString(noNewLineStyle.Render("No newline at end of file"))
+					s.WriteString("\n")
+				}
 			}
 		}
 	}
