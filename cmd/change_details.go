@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -170,6 +171,17 @@ func (m *changeDetailsModel) buildPrettyDetails() {
 	s.WriteString(divider)
 	s.WriteString("\n")
 
+	greatestLineNo := 0
+
+	for _, f := range p.Files {
+		for _, hunk := range f.Hunks {
+			last := max(hunk.OldStart+hunk.OldCount, hunk.NewStart+hunk.NewCount)
+			greatestLineNo = max(greatestLineNo, last)
+		}
+	}
+
+	lineNoStr := strconv.Itoa(greatestLineNo)
+
 	for fileIndex, file := range p.Files {
 
 		if fileIndex != 0 {
@@ -185,10 +197,10 @@ func (m *changeDetailsModel) buildPrettyDetails() {
 		s.WriteString(divider)
 		s.WriteString("\n")
 
-		if maxWidth < 160 {
+		if maxWidth < 170 {
 			s.WriteString(prettyDiffUnified(file, maxWidth))
 		} else {
-			s.WriteString(prettyDiffSideBySide(file, maxWidth))
+			s.WriteString(prettyDiffSideBySide(file, maxWidth, len(lineNoStr)))
 		}
 	}
 
@@ -249,7 +261,7 @@ func prettyDiffUnified(f patch.FileDiff, width int) string {
 	return s.String()
 }
 
-func prettyDiffSideBySide(f patch.FileDiff, width int) string {
+func prettyDiffSideBySide(f patch.FileDiff, width int, lineNoMaxDigits int) string {
 	var s strings.Builder
 
 	columnWidth := max(1, width/2)
@@ -258,12 +270,10 @@ func prettyDiffSideBySide(f patch.FileDiff, width int) string {
 
 	oldLineStyle := lipgloss.
 		NewStyle().
-		Inherit(maxWidthStyle).
 		Foreground(lipgloss.BrightRed)
 
 	newLineStyle := lipgloss.
 		NewStyle().
-		Inherit(maxWidthStyle).
 		Foreground(lipgloss.BrightGreen)
 
 	hunkHeaderStyle := lipgloss.
@@ -276,14 +286,20 @@ func prettyDiffSideBySide(f patch.FileDiff, width int) string {
 		Inherit(maxWidthStyle).
 		Foreground(lipgloss.BrightMagenta)
 
+	lineNoStyle := lipgloss.
+		NewStyle().
+		Width(lineNoMaxDigits).
+		Align(lipgloss.Right).
+		Foreground(lipgloss.BrightBlack)
+
 	noNewLineStr := noNewLineStyle.Render("No newline at end of file")
 
 	for _, hunk := range f.Hunks {
 		removed := make([]patch.DiffLine, 0)
 		added := make([]patch.DiffLine, 0)
 
-		// removedLineNum := 0
-		// addedLineNum := 0
+		oldLineNo := hunk.OldStart
+		newLineNo := hunk.NewStart
 
 		removedHeader := hunkHeaderStyle.Render(fmt.Sprintf("@@ -%d @@", hunk.OldCount))
 		addedHeader := hunkHeaderStyle.Render(fmt.Sprintf("@@ +%d @@", hunk.NewCount))
@@ -299,13 +315,23 @@ func prettyDiffSideBySide(f patch.FileDiff, width int) string {
 
 				if i < len(removed) {
 					line := removed[i]
-					removeStr = oldLineStyle.Render(line.Type.String() + line.Text)
+					lineNo := strconv.Itoa(oldLineNo)
+					lineNoStyled := lineNoStyle.Render(lineNo)
+					oldLineNo++
+
+					unpadded := lineNoStyled + " " + oldLineStyle.Render(line.Type.String()+line.Text)
+					removeStr = maxWidthStyle.Render(unpadded)
 					oldMissingNewLine = line.NoNewlineAtEOF
 				}
 
 				if i < len(added) {
 					line := added[i]
-					addStr = newLineStyle.Render(line.Type.String() + line.Text)
+					lineNo := strconv.Itoa(newLineNo)
+					lineNoStyled := lineNoStyle.Render(lineNo)
+					newLineNo++
+
+					unpadded := lineNoStyled + " " + newLineStyle.Render(line.Type.String()+line.Text)
+					addStr = maxWidthStyle.Render(unpadded)
 					newMissingNewLine = line.NoNewlineAtEOF
 				}
 
@@ -338,9 +364,17 @@ func prettyDiffSideBySide(f patch.FileDiff, width int) string {
 			switch line.Type {
 			case patch.DiffLineContext:
 				flush()
-				str := maxWidthStyle.Render(line.Type.String() + line.Text)
-				s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, str, str))
+				lineContent := line.Type.String() + line.Text
+				oldContent := lineNoStyle.Render(strconv.Itoa(oldLineNo)) + " " + lineContent
+				newContent := lineNoStyle.Render(strconv.Itoa(newLineNo)) + " " + lineContent
+
+				old := maxWidthStyle.Render(oldContent)
+				new := maxWidthStyle.Render(newContent)
+
+				s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, old, new))
 				s.WriteString("\n")
+				oldLineNo++
+				newLineNo++
 
 			case patch.DiffLineRemoved:
 				removed = append(removed, line)
