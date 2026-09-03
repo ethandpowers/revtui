@@ -170,6 +170,36 @@ func (m *changeDetailsModel) buildPrettyDetails() {
 	s.WriteString(divider)
 	s.WriteString("\n")
 
+	for fileIndex, file := range p.Files {
+
+		if fileIndex != 0 {
+			s.WriteString(divider)
+			s.WriteString("\n")
+		}
+		s.WriteString(maxWidthStyle.Render("--- " + file.OldPath))
+		s.WriteString("\n")
+
+		s.WriteString(maxWidthStyle.Render("+++ " + file.NewPath))
+		s.WriteString("\n")
+
+		s.WriteString(divider)
+		s.WriteString("\n")
+
+		if maxWidth < 160 {
+			s.WriteString(prettyDiffUnified(file, maxWidth))
+		} else {
+			s.WriteString(prettyDiffSideBySide(file, maxWidth))
+		}
+	}
+
+	m.prettyDetails = s.String()
+	m.patchLineCount = len(strings.Split(m.prettyDetails, "\n"))
+}
+
+func prettyDiffUnified(f patch.FileDiff, width int) string {
+	var s strings.Builder
+
+	maxWidthStyle := lipgloss.NewStyle().Width(width)
 	oldLineStyle := lipgloss.
 		NewStyle().
 		Inherit(maxWidthStyle).
@@ -190,47 +220,136 @@ func (m *changeDetailsModel) buildPrettyDetails() {
 		Inherit(maxWidthStyle).
 		Foreground(lipgloss.BrightMagenta)
 
-	for fileIndex, file := range p.Files {
-		if fileIndex != 0 {
-			s.WriteString(divider)
+	for _, hunk := range f.Hunks {
+		header := fmt.Sprintf("@@ -%d +%d @@", hunk.OldCount, hunk.NewCount)
+		s.WriteString(hunkHeaderStyle.Render(header))
+		s.WriteString("\n")
+
+		for _, line := range hunk.Lines {
+			lineWithPrefix := line.Type.String() + line.Text
+
+			switch line.Type {
+			case patch.DiffLineContext:
+				s.WriteString(maxWidthStyle.Render(lineWithPrefix))
+			case patch.DiffLineRemoved:
+				s.WriteString(oldLineStyle.Render(lineWithPrefix))
+			case patch.DiffLineAdded:
+				s.WriteString(newLineStyle.Render(lineWithPrefix))
+			}
+
 			s.WriteString("\n")
-		}
-		s.WriteString(maxWidthStyle.Render("--- " + file.OldPath))
-		s.WriteString("\n")
 
-		s.WriteString(maxWidthStyle.Render("+++ " + file.NewPath))
-		s.WriteString("\n")
-
-		s.WriteString(divider)
-		s.WriteString("\n")
-
-		for _, hunk := range file.Hunks {
-			header := fmt.Sprintf("@@ -%d +%d @@", hunk.OldCount, hunk.NewCount)
-			s.WriteString(hunkHeaderStyle.Render(header))
-			s.WriteString("\n")
-
-			for _, line := range hunk.Lines {
-				lineWithPrefix := line.Type.String() + line.Text
-
-				switch line.Type {
-				case patch.DiffLineContext:
-					s.WriteString(maxWidthStyle.Render(lineWithPrefix))
-				case patch.DiffLineRemoved:
-					s.WriteString(oldLineStyle.Render(lineWithPrefix))
-				case patch.DiffLineAdded:
-					s.WriteString(newLineStyle.Render(lineWithPrefix))
-				}
-
+			if line.NoNewlineAtEOF {
+				s.WriteString(noNewLineStyle.Render("No newline at end of file"))
 				s.WriteString("\n")
-
-				if line.NoNewlineAtEOF {
-					s.WriteString(noNewLineStyle.Render("No newline at end of file"))
-					s.WriteString("\n")
-				}
 			}
 		}
 	}
 
-	m.prettyDetails = s.String()
-	m.patchLineCount = len(strings.Split(m.prettyDetails, "\n"))
+	return s.String()
+}
+
+func prettyDiffSideBySide(f patch.FileDiff, width int) string {
+	var s strings.Builder
+
+	columnWidth := max(1, width/2)
+
+	maxWidthStyle := lipgloss.NewStyle().Width(columnWidth)
+
+	oldLineStyle := lipgloss.
+		NewStyle().
+		Inherit(maxWidthStyle).
+		Foreground(lipgloss.BrightRed)
+
+	newLineStyle := lipgloss.
+		NewStyle().
+		Inherit(maxWidthStyle).
+		Foreground(lipgloss.BrightGreen)
+
+	hunkHeaderStyle := lipgloss.
+		NewStyle().
+		Inherit(maxWidthStyle).
+		Foreground(lipgloss.Cyan)
+
+	noNewLineStyle := lipgloss.
+		NewStyle().
+		Inherit(maxWidthStyle).
+		Foreground(lipgloss.BrightMagenta)
+
+	noNewLineStr := noNewLineStyle.Render("No newline at end of file")
+
+	for _, hunk := range f.Hunks {
+		removed := make([]patch.DiffLine, 0)
+		added := make([]patch.DiffLine, 0)
+
+		// removedLineNum := 0
+		// addedLineNum := 0
+
+		removedHeader := hunkHeaderStyle.Render(fmt.Sprintf("@@ -%d @@", hunk.OldCount))
+		addedHeader := hunkHeaderStyle.Render(fmt.Sprintf("@@ +%d @@", hunk.NewCount))
+		s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, removedHeader, addedHeader))
+		s.WriteString("\n")
+
+		flush := func() {
+			for i := range max(len(added), len(removed)) {
+				removeStr := maxWidthStyle.Render("")
+				addStr := maxWidthStyle.Render("")
+				oldMissingNewLine := false
+				newMissingNewLine := false
+
+				if i < len(removed) {
+					line := removed[i]
+					removeStr = oldLineStyle.Render(line.Type.String() + line.Text)
+					oldMissingNewLine = line.NoNewlineAtEOF
+				}
+
+				if i < len(added) {
+					line := added[i]
+					addStr = newLineStyle.Render(line.Type.String() + line.Text)
+					newMissingNewLine = line.NoNewlineAtEOF
+				}
+
+				line := lipgloss.JoinHorizontal(lipgloss.Top, removeStr, addStr)
+				s.WriteString(line)
+				s.WriteString("\n")
+
+				if oldMissingNewLine || newMissingNewLine {
+					oldCell := maxWidthStyle.Render("")
+					newCell := maxWidthStyle.Render("")
+
+					if oldMissingNewLine {
+						oldCell = noNewLineStr
+					}
+
+					if newMissingNewLine {
+						newCell = noNewLineStr
+					}
+
+					s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, oldCell, newCell))
+					s.WriteString("\n")
+				}
+			}
+
+			removed = removed[:0]
+			added = added[:0]
+		}
+
+		for _, line := range hunk.Lines {
+			switch line.Type {
+			case patch.DiffLineContext:
+				flush()
+				str := maxWidthStyle.Render(line.Type.String() + line.Text)
+				s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, str, str))
+				s.WriteString("\n")
+
+			case patch.DiffLineRemoved:
+				removed = append(removed, line)
+			case patch.DiffLineAdded:
+				added = append(added, line)
+			}
+		}
+
+		flush()
+	}
+	return s.String()
 }
