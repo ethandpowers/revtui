@@ -191,6 +191,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case checkoutMsg:
+		return m, stopLoading(msg.message, msg.err)
+
 	case patchLoadedMsg:
 		m.loading = false
 		m.err = msg.err
@@ -218,7 +221,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailsModel.filesCursor = 0
 		m.detailsModel.filesScrollOffset = 0
 		m.detailsModel.isFileFocused = false
-		return m, tea.Batch(startLoading(""), fetchPatchCmd(m.backend, msg.change))
+		return m, tea.Sequence(startLoading(""), fetchPatchCmd(m.backend, msg.change))
 
 	case tea.KeyPressMsg:
 
@@ -251,7 +254,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			return m, tea.Batch(startLoading(""), checkoutChangeCmd(*m.getActiveChange(), m.backend))
+			change := *m.getActiveChange()
+			return m, tea.Sequence(startLoading(fmt.Sprintf("Checking out %s", change.Title)), checkoutChangeCmd(*m.getActiveChange(), m.backend))
 
 		case "enter":
 			if !m.showDetails {
@@ -280,7 +284,12 @@ func (m model) renderFooter() string {
 	var message string
 
 	if m.loading {
-		message = m.spinner.View() + " Loading ..."
+		text := "Loading ..."
+		if len(m.message) > 0 {
+			text = m.message
+		}
+
+		message = m.spinner.View() + text
 	} else if m.err != nil {
 		message = fmt.Sprintf("Error: %s", m.err.Error())
 	} else {

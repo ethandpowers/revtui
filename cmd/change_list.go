@@ -98,9 +98,6 @@ func (m changeListModel) Update(msg tea.Msg) (changeListModel, tea.Cmd) {
 		}
 		return m, nil
 
-	case checkoutMsg:
-		return m, stopLoading(msg.message, msg.err)
-
 	case tea.KeyPressMsg:
 
 		switch msg.String() {
