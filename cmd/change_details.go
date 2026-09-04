@@ -221,7 +221,7 @@ func (m *changeDetailsModel) renderActiveFile() {
 	fileIndex := m.filesScrollOffset + m.filesCursor
 	var content string
 	if fileIndex == 0 {
-		content = m.renderCommitMsgAndHeader(m.filesColWidth)
+		content = m.renderCommitMsgAndHeader(m.renderedFileColWidth)
 	} else {
 		width := m.renderedFileColWidth - 4
 		f := m.patch.Files[fileIndex-1]
