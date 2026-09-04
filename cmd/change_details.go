@@ -12,21 +12,30 @@ import (
 )
 
 type changeDetailsModel struct {
-	backend        Backend
-	change         Change
-	patch          *patch.Patch
-	prettyDetails  string
-	patchLineCount int
-	err            error
-	cursor         int
-	width          int
-	height         int
-	lastTime       time.Time
-	lastKey        string
+	backend              Backend
+	change               Change
+	patch                *patch.Patch
+	filesColWidth        int
+	renderedFileColWidth int
+	isFileFocused        bool
+	renderedFile         string
+	activeFileLineCount  int
+	err                  error
+	filesScrollOffset    int
+	filesCursor          int
+	diffCursor           int
+	width                int
+	height               int
+	lastTime             time.Time
+	lastKey              string
 }
 
-func (m *changeDetailsModel) maxCursor() int {
-	return max(0, m.patchLineCount-m.height+3)
+func (m *changeDetailsModel) maxDiffCursor() int {
+	return max(0, m.activeFileLineCount-m.height+2)
+}
+
+func (m changeDetailsModel) getVisibleFileCount() int {
+	return max(0, m.height-2)
 }
 
 type patchLoadedMsg struct {
@@ -53,39 +62,66 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 
 		switch key {
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
+			if m.isFileFocused {
+				if m.diffCursor > 0 {
+					m.diffCursor--
+				}
+			} else {
+				if m.filesCursor > 0 {
+					m.filesCursor--
+					m.diffCursor = 0
+				} else if m.filesScrollOffset > 0 {
+					m.filesScrollOffset--
+					m.diffCursor = 0
+				}
 			}
 
 		case "down", "j":
-			if m.cursor < m.maxCursor() {
-				m.cursor++
+			if m.isFileFocused {
+				if m.diffCursor < m.maxDiffCursor() {
+					m.diffCursor++
+				}
+			} else {
+				rowsVisible := m.getVisibleFileCount()
+				numFileRows := len(m.patch.Files) + 1
+				if m.filesCursor < rowsVisible-1 && m.filesCursor < numFileRows-1 {
+					m.filesCursor++
+					m.diffCursor = 0
+				} else if m.filesCursor+m.filesScrollOffset < numFileRows-1 {
+					m.filesScrollOffset++
+					m.diffCursor = 0
+				}
 			}
 
 		case "pgup":
-			m.cursor -= m.height - 4
-			if m.cursor < 0 {
-				m.cursor = 0
+			m.diffCursor -= m.height - 4
+			if m.diffCursor < 0 {
+				m.diffCursor = 0
 			}
 
 		case "pgdown":
-			m.cursor += m.height - 4
-			if m.cursor > m.maxCursor() {
-				m.cursor = m.maxCursor()
+			m.diffCursor += m.height - 4
+			if m.diffCursor > m.maxDiffCursor() {
+				m.diffCursor = m.maxDiffCursor()
 			}
 
 		case "G":
-			m.cursor = m.maxCursor()
+			m.diffCursor = m.maxDiffCursor()
 
 		case "g":
 			if m.lastKey == "g" && time.Since(m.lastTime) < 300*time.Millisecond {
-				m.cursor = 0
+				m.diffCursor = 0
 				m.lastKey = ""
 			} else {
 				m.lastKey = msg.String()
 				m.lastTime = time.Now()
 			}
+		case "enter":
+			m.isFileFocused = true
+		case "esc":
+			m.isFileFocused = false
 		}
+		m.renderActiveFile()
 
 	case patchLoadedMsg:
 		parsedPatch, err := patch.ParsePatch(msg.patch)
@@ -95,8 +131,8 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 			break
 		}
 
-		m.buildPrettyDetails()
-		m.cursor = 0
+		m.diffCursor = 0
+		m.renderActiveFile()
 
 		return m, nil
 	}
@@ -104,34 +140,155 @@ func (m changeDetailsModel) Update(msg tea.Msg) (changeDetailsModel, tea.Cmd) {
 }
 
 func (m changeDetailsModel) View() string {
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		Padding(1, 2).
-		Width(m.width).
-		Height(m.height)
-
 	content := ""
 	if m.err != nil {
 		content = fmt.Sprintf("Error: %s", m.err.Error())
-	} else if len(m.prettyDetails) > 0 {
-
-		lines := strings.Split(m.prettyDetails, "\n")
-		start := max(0, min(m.cursor, len(lines)-1))
-		end := min(start+m.height-4, len(lines))
-		content += strings.Join(lines[start:end], "\n")
+	} else if m.patch != nil {
+		content = m.prettyDetails()
 	}
 
-	return boxStyle.Render(content)
+	return content
 }
 
-func (m *changeDetailsModel) buildPrettyDetails() {
-	change := m.change
-	p := m.patch
-	maxWidth := m.width - 6
+func (m *changeDetailsModel) prettyDetails() string {
+	fileList := m.renderFileList(m.filesColWidth)
+	activeFile := m.renderedFile
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, fileList, activeFile)
+}
+
+func (m changeDetailsModel) renderFileList(width int) string {
+	textWidth := width - 4
+	boxStyle := lipgloss.
+		NewStyle().
+		Width(width).
+		Height(m.height).
+		Padding(0, 1).
+		Border(lipgloss.RoundedBorder())
+
+	if !m.isFileFocused {
+		boxStyle = boxStyle.BorderForeground(lipgloss.Yellow)
+	}
+
+	defaultFileStyle := lipgloss.
+		NewStyle().
+		Width(textWidth).
+		Align(lipgloss.Right)
 
 	var s strings.Builder
 
-	maxWidthStyle := lipgloss.NewStyle().Width(maxWidth)
+	rowCount := min(m.getVisibleFileCount(), len(m.patch.Files)+1-m.filesScrollOffset)
+
+	for i := range rowCount {
+		fileIndex := i + m.filesScrollOffset
+		rowStyle := lipgloss.NewStyle().Inherit(defaultFileStyle)
+
+		var rowText string
+
+		if fileIndex == 0 {
+			rowText = "Commit Message"
+		} else {
+			file := &m.patch.Files[fileIndex-1]
+
+			if len(file.NewPath) == 0 {
+				// rowStyle = rowStyle.Background(lipgloss.Red).Foreground(lipgloss.Black)
+				rowStyle = rowStyle.Foreground(lipgloss.Red)
+				rowText = leftTruncate(file.OldPath, textWidth)
+			} else {
+				if len(file.OldPath) == 0 {
+					// rowStyle = rowStyle.Background(lipgloss.Green).Foreground(lipgloss.Black)
+					rowStyle = rowStyle.Foreground(lipgloss.Green)
+				}
+				rowText = leftTruncate(file.NewPath, textWidth)
+			}
+		}
+
+		if m.filesCursor+m.filesScrollOffset == fileIndex {
+			rowStyle = rowStyle.Background(lipgloss.Blue)
+		}
+
+		path := rowStyle.Render(rowText)
+		s.WriteString(path)
+		if i < rowCount-1 {
+			s.WriteString("\n")
+		}
+	}
+
+	return boxStyle.Render(s.String())
+}
+
+func (m *changeDetailsModel) renderActiveFile() {
+	fileIndex := m.filesScrollOffset + m.filesCursor
+	var content string
+	if fileIndex == 0 {
+		content = m.renderCommitMsgAndHeader(m.filesColWidth)
+	} else {
+		width := m.renderedFileColWidth - 4
+		f := m.patch.Files[fileIndex-1]
+		var s strings.Builder
+
+		dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.BrightBlack)
+		divider := dividerStyle.Render(strings.Repeat("─", width))
+		s.WriteString(divider)
+		s.WriteString("\n")
+
+		maxWidthStyle := lipgloss.NewStyle().Width(width)
+
+		greatestLineNo := 0
+
+		for _, hunk := range f.Hunks {
+			last := max(hunk.OldStart+hunk.OldCount, hunk.NewStart+hunk.NewCount)
+			greatestLineNo = max(greatestLineNo, last)
+		}
+
+		lineNoStr := strconv.Itoa(greatestLineNo)
+
+		s.WriteString(maxWidthStyle.Render("--- " + f.OldPath))
+		s.WriteString("\n")
+
+		s.WriteString(maxWidthStyle.Render("+++ " + f.NewPath))
+		s.WriteString("\n")
+
+		s.WriteString(divider)
+		s.WriteString("\n")
+
+		if width < 170 {
+			s.WriteString(prettyDiffUnified(f, width))
+		} else {
+			s.WriteString(prettyDiffSideBySide(f, width, len(lineNoStr)))
+		}
+
+		content = s.String()
+	}
+
+	lines := strings.Split(content, "\n")
+	start := max(0, min(m.diffCursor, len(lines)-1))
+	end := min(start+m.height-2, len(lines))
+
+	m.activeFileLineCount = len(lines)
+
+	content = strings.Join(lines[start:end], "\n")
+
+	boxStyle := lipgloss.
+		NewStyle().
+		Width(m.renderedFileColWidth).
+		Height(m.height).
+		Padding(0, 1).
+		Border(lipgloss.RoundedBorder())
+
+	if m.isFileFocused {
+		boxStyle = boxStyle.BorderForeground(lipgloss.Yellow)
+	}
+
+	m.renderedFile = boxStyle.Render(content)
+}
+
+func (m changeDetailsModel) renderCommitMsgAndHeader(width int) string {
+	change := m.change
+	p := m.patch
+	var s strings.Builder
+
+	maxWidthStyle := lipgloss.NewStyle().Width(width)
 
 	hashStyle := lipgloss.
 		NewStyle().
@@ -164,48 +321,8 @@ func (m *changeDetailsModel) buildPrettyDetails() {
 	s.WriteString("\n\n")
 
 	s.WriteString(maxWidthStyle.Render(p.Metadata.Body))
-	s.WriteString("\n\n")
 
-	dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.BrightBlack)
-	divider := dividerStyle.Render(strings.Repeat("─", min(72, maxWidth)))
-	s.WriteString(divider)
-	s.WriteString("\n")
-
-	greatestLineNo := 0
-
-	for _, f := range p.Files {
-		for _, hunk := range f.Hunks {
-			last := max(hunk.OldStart+hunk.OldCount, hunk.NewStart+hunk.NewCount)
-			greatestLineNo = max(greatestLineNo, last)
-		}
-	}
-
-	lineNoStr := strconv.Itoa(greatestLineNo)
-
-	for fileIndex, file := range p.Files {
-
-		if fileIndex != 0 {
-			s.WriteString(divider)
-			s.WriteString("\n")
-		}
-		s.WriteString(maxWidthStyle.Render("--- " + file.OldPath))
-		s.WriteString("\n")
-
-		s.WriteString(maxWidthStyle.Render("+++ " + file.NewPath))
-		s.WriteString("\n")
-
-		s.WriteString(divider)
-		s.WriteString("\n")
-
-		if maxWidth < 170 {
-			s.WriteString(prettyDiffUnified(file, maxWidth))
-		} else {
-			s.WriteString(prettyDiffSideBySide(file, maxWidth, len(lineNoStr)))
-		}
-	}
-
-	m.prettyDetails = s.String()
-	m.patchLineCount = len(strings.Split(m.prettyDetails, "\n"))
+	return s.String()
 }
 
 func prettyDiffUnified(f patch.FileDiff, width int) string {

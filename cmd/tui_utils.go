@@ -132,3 +132,16 @@ func checkoutChangeCmd(change Change, backend Backend) tea.Cmd {
 		}
 	}
 }
+
+func leftTruncate(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	runes := []rune(s)
+	if len(runes) <= width {
+		return s
+	}
+
+	return string(runes[len(runes)-width:])
+}

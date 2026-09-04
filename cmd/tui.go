@@ -167,8 +167,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.detailsModel.width = msg.Width
 		m.detailsModel.height = msg.Height - 1
+		m.detailsModel.filesColWidth = min(80, m.width/4)
+		m.detailsModel.renderedFileColWidth = m.width - m.detailsModel.filesColWidth
 		if m.detailsModel.patch != nil {
-			m.detailsModel.buildPrettyDetails()
+			m.detailsModel.renderActiveFile()
 		}
 
 		m.changeGridModel.width = msg.Width
@@ -213,6 +215,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showDetails = true
 		m.detailsModel.backend = m.backend
 		m.detailsModel.change = msg.change
+		m.detailsModel.filesCursor = 0
+		m.detailsModel.filesScrollOffset = 0
+		m.detailsModel.isFileFocused = false
 		return m, tea.Batch(startLoading(""), fetchPatchCmd(m.backend, msg.change))
 
 	case tea.KeyPressMsg:
@@ -223,9 +228,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "esc":
+			if m.detailsModel.isFileFocused {
+				break
+			}
 			m.showDetails = false
 			m.detailsModel.patch = nil
-			m.detailsModel.prettyDetails = ""
 			m.detailsModel.err = nil
 			return m, nil
 
@@ -247,11 +254,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(startLoading(""), checkoutChangeCmd(*m.getActiveChange(), m.backend))
 
 		case "enter":
-			if len(m.changes) == 0 {
-				return m, nil
-			}
+			if !m.showDetails {
+				if len(m.changes) == 0 {
+					return m, nil
+				}
 
-			return m, showDetails(*m.getActiveChange())
+				return m, showDetails(*m.getActiveChange())
+			}
 		}
 	}
 
