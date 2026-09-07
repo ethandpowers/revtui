@@ -486,3 +486,20 @@ func (c *GerritClient) GetPatch(change Change) (string, error) {
 
 	return string(patch), nil
 }
+
+func (c *GerritClient) GetChangeUrl(change Change) (string, error) {
+	var matchingChange *gerritChange
+	for i := range c.changes {
+		if c.changes[i].ChangeID == change.ChangeID {
+			matchingChange = &c.changes[i]
+			break
+		}
+	}
+
+	if matchingChange == nil {
+		return "", fmt.Errorf("change %s was not found in cached Gerrit changes", change.ChangeID)
+	}
+
+	url := "https://" + c.host + "/c/" + change.Project + "/+/" + strconv.Itoa(matchingChange.Number)
+	return url, nil
+}

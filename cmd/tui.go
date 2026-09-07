@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/pkg/browser"
 )
 
 type model struct {
@@ -195,6 +197,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			change := m.listViewModel.getActiveChange()
 			return m, tea.Sequence(startLoading(fmt.Sprintf("Checking out %s", change.Title)), checkoutChangeCmd(*m.listViewModel.getActiveChange(), m.backend))
 
+		case "o":
+
+			if len(m.changes) == 0 {
+				return m, nil
+			}
+
+			change := m.listViewModel.getActiveChange()
+			url, err := m.backend.GetChangeUrl(*change)
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+
+			browser.Stdout = io.Discard
+			browser.Stderr = io.Discard
+			browser.OpenURL(url)
+
 		case "enter":
 			if !m.showDetails {
 				if len(m.changes) == 0 {
@@ -219,7 +238,7 @@ func (m model) renderFooter() string {
 			modeHint = "m: toggle list | "
 		}
 	}
-	shortcutHints := modeHint + "c: checkout | w: checkout to worktree | p: cherry-pick | q: quit"
+	shortcutHints := modeHint + "c: checkout | o: Open In Browser | w: checkout to worktree | p: cherry-pick | q: quit"
 	var message string
 
 	if m.loading {

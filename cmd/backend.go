@@ -50,4 +50,5 @@ type Backend interface {
 	GetChanges() ([]Change, error)
 	GetPatch(Change) (string, error)
 	Checkout(Change) error
+	GetChangeUrl(Change) (string, error)
 }
