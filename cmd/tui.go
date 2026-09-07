@@ -10,17 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-type changesViewMode int
-
-const (
-	changeList changesViewMode = iota
-	changeGrid
-)
-
-type changeListView interface {
-	SelectedChange() *Change
-}
-
 type model struct {
 	width  int
 	height int
@@ -28,33 +17,13 @@ type model struct {
 	backend Backend
 	changes []Change
 
-	loading         bool
-	spinner         spinner.Model
-	message         string
-	showDetails     bool
-	changesMode     changesViewMode
-	changeListModel changeListModel
-	changeGridModel changeGridModel
-	detailsModel    changeDetailsModel
-	err             error
-}
-
-func (m model) getChangeListView() changeListView {
-	if m.changesMode == changeList {
-		return m.changeListModel
-	} else if m.changesMode == changeGrid {
-		return m.changeGridModel
-	}
-
-	return nil
-}
-
-func (m model) getActiveChange() *Change {
-	listView := m.getChangeListView()
-	if listView == nil {
-		return nil
-	}
-	return listView.SelectedChange()
+	loading       bool
+	spinner       spinner.Model
+	message       string
+	showDetails   bool
+	detailsModel  changeDetailsModel
+	listViewModel changeListViewModel
+	err           error
 }
 
 type startLoadingMsg struct {
@@ -95,26 +64,26 @@ func initialModel(backend Backend) model {
 	changes := make([]Change, 0)
 
 	return model{
-		backend:     backend,
-		changes:     make([]Change, 0),
-		changesMode: changeList,
-		changeListModel: changeListModel{
-			backend: backend,
-			changes: changes,
-			cursor:  0,
-		},
-		changeGridModel: changeGridModel{
-			backend: backend,
-			columns: []changeGridColModel{
-				{ReviewStatusNotReady, make([]Change, 0), 0},
-				{ReviewStatusReadyForReview, make([]Change, 0), 0},
-				{ReviewStatusReviewed, make([]Change, 0), 0},
-				{ReviewStatusVerified, make([]Change, 0), 0},
-				{ReviewStatusBlocked, make([]Change, 0), 0},
-				{ReviewStatusUnknown, make([]Change, 0), 0},
+		backend: backend,
+		changes: make([]Change, 0),
+		listViewModel: changeListViewModel{
+			changesMode: changeList,
+			changeListModel: changeListModel{
+				changes: changes,
+				cursor:  0,
 			},
-			xCursor: 0,
-			yCursor: 0,
+			changeGridModel: changeGridModel{
+				columns: []changeGridColModel{
+					{ReviewStatusNotReady, make([]Change, 0), 0},
+					{ReviewStatusReadyForReview, make([]Change, 0), 0},
+					{ReviewStatusReviewed, make([]Change, 0), 0},
+					{ReviewStatusVerified, make([]Change, 0), 0},
+					{ReviewStatusBlocked, make([]Change, 0), 0},
+					{ReviewStatusUnknown, make([]Change, 0), 0},
+				},
+				xCursor: 0,
+				yCursor: 0,
+			},
 		},
 		loading:     true,
 		spinner:     s,
@@ -125,8 +94,7 @@ func initialModel(backend Backend) model {
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.spinner.Tick,
-		m.changeListModel.Init(),
-		m.changeGridModel.Init(),
+		m.listViewModel.Init(),
 		loadChangesCmd(m.backend),
 	)
 }
@@ -140,12 +108,7 @@ func (m model) updateChildren(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	} else {
 		var cmd tea.Cmd
-		switch m.changesMode {
-		case changeList:
-			m.changeListModel, cmd = m.changeListModel.Update(msg)
-		case changeGrid:
-			m.changeGridModel, cmd = m.changeGridModel.Update(msg)
-		}
+		m.listViewModel, cmd = m.listViewModel.Update(msg)
 		cmds = append(cmds, cmd)
 	}
 
@@ -172,13 +135,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detailsModel.patch != nil {
 			m.detailsModel.renderActiveFile()
 		}
-
-		m.changeGridModel.width = msg.Width
-		m.changeGridModel.height = msg.Height - 1
-
-		m.changeListModel.width = msg.Width
-		m.changeListModel.height = msg.Height - 1
-		return m, nil
+		// fall through so the list/grid can adjust layout
 
 	case startLoadingMsg:
 		m.loading = true
@@ -203,15 +160,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		m.changes = msg.changes
-		m.changeListModel.changes = msg.changes
-
-		for _, change := range msg.changes {
-			for i, col := range m.changeGridModel.columns {
-				if col.status == change.Review.Primary {
-					m.changeGridModel.columns[i].changes = append(m.changeGridModel.columns[i].changes, change)
-				}
-			}
-		}
 		// fall through so the list/grid can do any necessary setup
 
 	case showDetailsMsg:
@@ -238,16 +186,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detailsModel.patch = nil
 			m.detailsModel.err = nil
 			return m, nil
-
-		case "m":
-			if m.showDetails {
-				return m, nil
-			}
-			if m.changesMode == changeList {
-				m.changesMode = changeGrid
-			} else {
-				m.changesMode = changeList
-			}
 
 		case "c":
 			if len(m.changes) == 0 {
@@ -329,10 +267,8 @@ func (m model) View() tea.View {
 	s := ""
 	if m.showDetails {
 		s = m.detailsModel.View()
-	} else if m.changesMode == changeList {
-		s = m.changeListModel.View()
-	} else if m.changesMode == changeGrid {
-		s = m.changeGridModel.View()
+	} else {
+		s = m.listViewModel.View()
 	}
 
 	s += "\n" + m.renderFooter()
