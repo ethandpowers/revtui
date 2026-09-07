@@ -192,8 +192,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			change := *m.getActiveChange()
-			return m, tea.Sequence(startLoading(fmt.Sprintf("Checking out %s", change.Title)), checkoutChangeCmd(*m.getActiveChange(), m.backend))
+			change := m.listViewModel.getActiveChange()
+			return m, tea.Sequence(startLoading(fmt.Sprintf("Checking out %s", change.Title)), checkoutChangeCmd(*m.listViewModel.getActiveChange(), m.backend))
 
 		case "enter":
 			if !m.showDetails {
@@ -201,7 +201,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 
-				return m, showDetails(*m.getActiveChange())
+				return m, showDetails(*m.listViewModel.getActiveChange())
 			}
 		}
 	}
@@ -212,7 +212,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) renderFooter() string {
 	modeHint := ""
 	if !m.showDetails {
-		if m.changesMode == changeList {
+		// TODO: The keycombos hint should be handled more elegantly.  Maybe by storing a list of combo -> hint mappings?
+		if m.listViewModel.changesMode == changeList {
 			modeHint = "m: toggle grid | "
 		} else {
 			modeHint = "m: toggle list | "
