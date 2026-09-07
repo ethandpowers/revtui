@@ -6,7 +6,6 @@ import (
 )
 
 type changeGridModel struct {
-	backend Backend
 	columns []changeGridColModel
 
 	xCursor int

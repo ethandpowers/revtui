@@ -17,7 +17,6 @@ type columnConfig struct {
 }
 
 type changeListModel struct {
-	backend Backend
 	changes []Change
 
 	cursor       int
