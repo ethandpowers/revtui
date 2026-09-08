@@ -123,6 +123,14 @@ func (m model) updateChildren(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m model) getActiveChange() *Change {
+	if m.showDetails {
+		return &m.detailsModel.change
+	} else {
+		return m.listViewModel.getActiveChange()
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -194,16 +202,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-			change := m.listViewModel.getActiveChange()
-			return m, tea.Sequence(startLoading(fmt.Sprintf("Checking out %s", change.Title)), checkoutChangeCmd(*m.listViewModel.getActiveChange(), m.backend))
+			change := m.getActiveChange()
+			return m, tea.Sequence(startLoading(fmt.Sprintf("Checking out %s", change.Title)), checkoutChangeCmd(*m.getActiveChange(), m.backend))
 
 		case "o":
-
 			if len(m.changes) == 0 {
 				return m, nil
 			}
 
-			change := m.listViewModel.getActiveChange()
+			change := m.getActiveChange()
 			url, err := m.backend.GetChangeUrl(*change)
 			if err != nil {
 				m.err = err
@@ -214,13 +221,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			browser.Stderr = io.Discard
 			browser.OpenURL(url)
 
+		case "r":
+			cmds := []tea.Cmd{startLoading("")}
+			cmds = append(cmds, loadChangesCmd(m.backend))
+			if m.showDetails {
+				cmds = append(cmds, fetchPatchCmd(m.backend, *m.getActiveChange()))
+			}
+
+			return m, tea.Batch(cmds...)
+
 		case "enter":
 			if !m.showDetails {
 				if len(m.changes) == 0 {
 					return m, nil
 				}
 
-				return m, showDetails(*m.listViewModel.getActiveChange())
+				return m, showDetails(*m.getActiveChange())
 			}
 		}
 	}
@@ -238,7 +254,7 @@ func (m model) renderFooter() string {
 			modeHint = "m: toggle list | "
 		}
 	}
-	shortcutHints := modeHint + "c: checkout | o: Open In Browser | w: checkout to worktree | p: cherry-pick | q: quit"
+	shortcutHints := modeHint + "c: checkout | o: open in browser | r: refresh | w: checkout to worktree | p: cherry-pick | q: quit"
 	var message string
 
 	if m.loading {

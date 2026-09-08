@@ -63,8 +63,9 @@ func (m changeListViewModel) Update(msg tea.Msg) (changeListViewModel, tea.Cmd) 
 	case changesLoadedMsg:
 		m.changeListModel.changes = msg.changes
 
-		for _, change := range msg.changes {
-			for i, col := range m.changeGridModel.columns {
+		for i, col := range m.changeGridModel.columns {
+			m.changeGridModel.columns[i].changes = m.changeGridModel.columns[i].changes[:0]
+			for _, change := range msg.changes {
 				if col.status == change.Review.Primary {
 					m.changeGridModel.columns[i].changes = append(m.changeGridModel.columns[i].changes, change)
 				}
