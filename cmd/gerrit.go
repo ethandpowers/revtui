@@ -359,10 +359,12 @@ func (c *GerritClient) GetChanges() ([]Change, error) {
 		return nil, errors.New(string(responseBody))
 	}
 
-	err = c.decodeResponse(resp, &c.changes)
+	var gerritChanges []gerritChange
+	err = c.decodeResponse(resp, &gerritChanges)
 	if err != nil {
 		return nil, err
 	}
+	c.changes = gerritChanges
 
 	changes := make([]Change, 0, len(c.changes))
 	for _, change := range c.changes {
