@@ -145,6 +145,8 @@ func (m changeDetailsModel) View() string {
 		content = fmt.Sprintf("Error: %s", m.err.Error())
 	} else if m.patch != nil {
 		content = m.prettyDetails()
+	} else {
+		content = lipgloss.NewStyle().Width(m.width).Height(m.height).Render("")
 	}
 
 	return content
