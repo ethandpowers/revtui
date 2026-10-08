@@ -254,7 +254,7 @@ func (m model) renderFooter() string {
 			modeHint = "m: toggle list | "
 		}
 	}
-	shortcutHints := modeHint + "c: checkout | o: open in browser | r: refresh | w: checkout to worktree | p: cherry-pick | q: quit"
+	shortcutHints := modeHint + "c: checkout | o: open in browser | r: refresh | q: quit"
 	var message string
 
 	if m.loading {
